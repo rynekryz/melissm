@@ -155,6 +155,8 @@ fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>) {
                 }
             }
             let _ = app.emit("player-state", Status { playing, position, duration });
+            #[cfg(target_os = "linux")]
+            crate::mpris::update_status(playing, position, duration);
         }
     }
 }

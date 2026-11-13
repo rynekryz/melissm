@@ -50,6 +50,8 @@ const syncTray = () => {
     repeat: state.repeat,
     title: t?.title ?? '',
     artist: t?.artist ?? '',
+    album: t?.album ?? '',
+    thumbnail: t?.thumbnail ?? '',
   }).catch(() => {});
 };
 const emit = () => {
@@ -151,12 +153,19 @@ if (isTauri) {
     void next();
   });
   listen<string>('tray-action', (e) => {
-    switch (e.payload) {
+    const p = e.payload;
+    switch (p) {
       case 'play-pause': void toggle(); break;
+      case 'play': if (current() && !state.playing && !state.loading) void invoke('resume'); break;
+      case 'pause': if (state.playing) void invoke('pause'); break;
       case 'next': void next(); break;
       case 'previous': void previous(); break;
       case 'shuffle': toggleShuffle(); break;
       case 'repeat': cycleRepeat(); break;
+      default:
+        if (p.startsWith('seek:')) void seek(parseFloat(p.slice(5)));
+        else if (p.startsWith('volume:')) void setVolume(parseFloat(p.slice(7)));
+        break;
     }
   });
   listen<string>('playback-failed', (e) => {

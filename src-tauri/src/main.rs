@@ -3,6 +3,8 @@
 mod audio;
 mod innertube;
 mod lyrics;
+#[cfg(target_os = "linux")]
+mod mpris;
 mod theming;
 
 use audio::{Cmd, Player};
@@ -106,6 +108,8 @@ fn seek(state: State<'_, AppState>, seconds: f64) {
 #[tauri::command]
 fn volume(state: State<'_, AppState>, value: f32) {
     state.player.send(Cmd::Volume(value));
+    #[cfg(target_os = "linux")]
+    mpris::update_volume(value as f64);
 }
 
 #[tauri::command]
@@ -127,6 +131,8 @@ fn sync_player_state(
     repeat: String,
     title: String,
     artist: String,
+    album: String,
+    thumbnail: String,
 ) {
     *state.info.lock().unwrap() = PlayerInfo { playing, shuffle, repeat, title, artist };
     let info = state.info.lock().unwrap().clone();
@@ -134,6 +140,11 @@ fn sync_player_state(
         if let Ok(menu) = tray_menu(&state.handle, &info) {
             let _ = tray.set_menu(Some(menu));
         }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        mpris::update_track(info.title.clone(), info.artist.clone(), album, thumbnail);
+        mpris::update_flags(shuffle, info.repeat.clone());
     }
 }
 
@@ -193,6 +204,8 @@ fn main() {
                 handle: handle.clone(),
             });
             theming::watch(handle.clone(), opts.clone());
+            #[cfg(target_os = "linux")]
+            mpris::start(handle.clone());
 
             let menu = tray_menu(&handle, &PlayerInfo::default())?;
             let tray = TrayIconBuilder::new()
