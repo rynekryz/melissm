@@ -1,6 +1,6 @@
 # Maintainer: Ryne
 pkgname=melissm
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="It plays music, literally. what else would it do"
 arch=('x86_64')
@@ -22,7 +22,7 @@ build() {
   export PATH="$HOME/.cargo/bin:$PATH"
   unset CFLAGS CXXFLAGS LDFLAGS CPPFLAGS
   cd "$startdir"
-  npm run tauri build
+  npm run tauri build -- --no-bundle
 }
 
 package() {

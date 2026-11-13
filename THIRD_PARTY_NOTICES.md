@@ -8,7 +8,7 @@ Melissm is licensed under GPL-3.0-or-later. Full license texts ship in `public/l
 | [LrcLib](https://github.com/tranxuanthang/lrclib) | MIT | Synced lyrics service |
 | [Tauri](https://github.com/tauri-apps/tauri) | MIT / Apache-2.0 | Desktop runtime |
 | [Astro](https://github.com/withastro/astro) | MIT | Frontend framework |
-| [Rodio](https://github.com/RustAudio/rodio) | MIT / Apache-2.0 | Audio playback |
+| [GStreamer](https://gitlab.freedesktop.org/gstreamer/gstreamer) | LGPL-2.1 | Audio playback |
 | [Matugen](https://github.com/InioX/matugen) | GPL-2.0 | Wallpaper color extraction |
 | [Material Web](https://github.com/material-components/material-web) | Apache-2.0 | Material 3 tokens |
 | [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | MIT | Styling |

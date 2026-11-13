@@ -148,6 +148,13 @@ async fn set_theme(opts: State<'_, SharedOpts>, theme: ThemeOpts) -> Result<BTre
 }
 
 #[tauri::command]
+#[cfg(windows)]
+fn system_scale() -> f64 {
+    1.0
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
 fn system_scale() -> f64 {
     let txt = std::process::Command::new("gsettings")
         .args(["get", "org.gnome.desktop.interface", "text-scaling-factor"])

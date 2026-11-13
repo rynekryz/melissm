@@ -7,7 +7,7 @@ const deps = [
   { name: 'LrcLib', license: 'MIT', file: 'LrcLib-MIT.txt', url: 'https://github.com/tranxuanthang/lrclib', note: 'Synced lyrics service' },
   { name: 'Tauri', license: 'MIT / Apache-2.0', file: 'Tauri-MIT.txt', url: 'https://github.com/tauri-apps/tauri', note: 'Desktop runtime' },
   { name: 'Astro', license: 'MIT', file: 'Astro-MIT.txt', url: 'https://github.com/withastro/astro', note: 'Frontend framework' },
-  { name: 'Rodio', license: 'MIT / Apache-2.0', file: 'Rodio-MIT.txt', url: 'https://github.com/RustAudio/rodio', note: 'Audio playback' },
+  { name: 'GStreamer', license: 'LGPL-2.1', file: 'GStreamer-LGPL-2.1.txt', url: 'https://gitlab.freedesktop.org/gstreamer/gstreamer', note: 'Audio playback' },
   { name: 'Matugen', license: 'GPL-2.0', file: 'Matugen-GPL-2.0.txt', url: 'https://github.com/InioX/matugen', note: 'Wallpaper color extraction' },
   { name: 'Material Web', license: 'Apache-2.0', file: 'MaterialWeb-Apache-2.0.txt', url: 'https://github.com/material-components/material-web', note: 'Material 3 components' },
   { name: 'Tailwind CSS', license: 'MIT', file: 'Tailwind-MIT.txt', url: 'https://github.com/tailwindlabs/tailwindcss', note: 'Styling' },
@@ -18,7 +18,12 @@ const deps = [
 ---
 <Layout title="About">
   <h1 class="mb-2 text-5xl font-semibold tracking-tight">Melissm</h1>
-  <p class="mb-8 max-w-xl text-on-surface-variant">It plays music, literally. FOSS music streaming app for Linux, written in Rust. Made with <span class="ms fill align-middle text-[20px]">favorite</span> by <a href="https://github.com/rynekryz" class="text-primary" target="_blank" rel="noreferrer">Ryne</a><br>v0.1.0</p>
+  <p class="mb-8 max-w-xl text-on-surface-variant">It plays music, literally. FOSS music streaming app for desktop, written in Rust. Made with <span class="ms fill align-middle text-[20px]">favorite</span> by <a href="https://github.com/rynekryz" class="text-primary" target="_blank" rel="noreferrer">Ryne</a><br>v0.1.1</p>
+  <a href="https://github.com/rynekryz/melissm" target="_blank" rel="noreferrer" class="mb-8 flex max-w-3xl cursor-pointer items-center gap-4 rounded-3xl bg-surface-container px-6 py-4 transition-colors hover:bg-surface-container-high">
+    <div class="grid size-10 shrink-0 place-items-center rounded-full bg-secondary-container text-on-secondary-container"><span class="ms fill">code</span></div>
+    <div class="flex-1"><div class="font-medium">Source code</div><div class="text-sm text-on-surface-variant">It's FOSS, go wild</div></div>
+    <span class="ms text-on-surface-variant">open_in_new</span>
+  </a>
   <h2 class="mb-4 text-2xl font-medium">Open source licenses</h2>
   <div class="max-w-3xl space-y-2">
     {deps.map((d) => (
