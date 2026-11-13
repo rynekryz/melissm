@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.astro/
+pkg/
+src-tauri/target/
+src-tauri/gen/
+*.pkg.tar.zst
+bp.txt
+melissm-icon.png
+melissm-icon.svg
+.DS_Store
+Thumbs.db

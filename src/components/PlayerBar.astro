@@ -1,0 +1,153 @@
+<div id="lyrics-panel" class="lyrics-glass fixed right-3 top-3 bottom-[108px] z-20 flex w-[380px] translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
+  <h2 class="mb-2 shrink-0 px-2 text-lg font-medium">Lyrics</h2>
+  <div id="lyrics-viewport" class="lyrics-mask flex-1 overflow-y-auto pr-2">
+    <div id="lyrics-body" class="space-y-6 pb-24 pt-10 text-2xl font-medium leading-snug"></div>
+  </div>
+  <p class="mt-2 shrink-0 px-2 text-xs text-on-surface-variant">Lyrics from LrcLib</p>
+</div>
+
+<div id="player" class="glass idle fixed inset-x-3 bottom-3 z-30 flex h-[84px] items-center gap-6 rounded-[32px] px-5 shadow-xl shadow-black/40 transition-colors duration-700">
+  <div class="flex w-[28%] min-w-0 items-center gap-4">
+    <div id="p-artbox" class="relative size-14 shrink-0 overflow-hidden rounded-2xl bg-surface-container-highest transition-[border-radius] duration-500 [transition-timing-function:var(--spring)]">
+      <img id="p-art" alt="" class="absolute inset-0 size-full object-cover" />
+      <span id="p-art-fallback" class="absolute inset-0 grid place-items-center"><span class="ms text-on-surface-variant opacity-70">music_note</span></span>
+    </div>
+    <div class="min-w-0">
+      <div id="p-title" class="truncate font-medium">Nothing playing</div>
+      <div id="p-artist" class="truncate text-sm text-on-surface-variant">Pick a song you like</div>
+    </div>
+  </div>
+
+  <div class="flex flex-1 items-center gap-4">
+    <button id="p-shuffle" class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Shuffle"><span class="ms">shuffle</span></button>
+    <button id="p-prev" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Previous"><span class="ms fill">skip_previous</span></button>
+    <button id="p-play" data-playing="false" class="press play-btn grid size-14 place-items-center bg-primary text-on-primary" aria-label="Play or pause"><span id="p-icon" class="ms fill text-[32px]">play_arrow</span></button>
+    <button id="p-next" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Next"><span class="ms fill">skip_next</span></button>
+    <button id="p-repeat" class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span class="ms">repeat</span></button>
+    <span id="p-pos" class="w-10 text-right text-xs tabular-nums text-on-surface-variant">0:00</span>
+    <div id="p-seek" class="relative h-4 flex-1 cursor-pointer">
+      <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-surface-container-highest"></div>
+      <div id="p-wave" class="wave absolute left-0 top-0 h-4" style="width:0%"></div>
+    </div>
+    <span id="p-dur" class="w-10 text-xs tabular-nums text-on-surface-variant">0:00</span>
+  </div>
+
+  <div class="flex w-[20%] items-center justify-end gap-2">
+    <button id="p-lyrics" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics"><span class="ms">lyrics</span></button>
+    <span class="ms text-on-surface-variant">volume_up</span>
+    <input id="p-vol" type="range" min="0" max="100" class="w-24 accent-[var(--md-sys-color-primary)]" aria-label="Volume" />
+  </div>
+</div>
+
+<script>
+  import { current, cycleRepeat, next, onError, previous, seek, setVolume, subscribe, toggle, toggleShuffle } from '../lib/player';
+  import { lyrics } from '../lib/api';
+  import { esc, fmt } from '../lib/ui';
+
+  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const bar = $('player');
+  const panel = $('lyrics-panel');
+  const body = $('lyrics-body');
+  const art = $<HTMLImageElement>('p-art');
+  const artFallback = $('p-art-fallback');
+  const vol = $<HTMLInputElement>('p-vol');
+  let lines: { t: number; text: string }[] = [];
+  let lyricsFor = '';
+  let activeLine = -1;
+
+  const parseLrc = (lrc: string) =>
+    lrc
+      .split('\n')
+      .map((l) => l.match(/^\[(\d+):(\d+(?:\.\d+)?)\](.*)$/))
+      .filter((m): m is RegExpMatchArray => !!m)
+      .map((m) => ({ t: +m[1] * 60 + +m[2], text: m[3].trim() }));
+
+  vol.value = String(Math.round(parseFloat(localStorage.getItem('melissm.volume') ?? '1') * 100));
+
+  onError((msg) => {
+    $('p-artist').textContent = msg.includes('no playable stream') ? 'Playback failed, try another song' : 'Something went wrong';
+  });
+
+  async function loadLyrics() {
+    const track = current();
+    if (!track || lyricsFor === track.id) return;
+    lyricsFor = track.id;
+    lines = [];
+    activeLine = -1;
+    body.innerHTML = '<p class="text-on-surface-variant">Looking for lyrics…</p>';
+    try {
+      const l = await lyrics(track);
+      if (lyricsFor !== track.id) return;
+      if (l.synced) {
+        lines = parseLrc(l.synced);
+        body.innerHTML = lines.map((x, i) => `<p class="lyric" data-l="${i}">${esc(x.text) || '♪'}</p>`).join('');
+      } else if (l.plain) {
+        body.innerHTML = l.plain.split('\n').map((x) => `<p>${esc(x)}</p>`).join('');
+      } else body.innerHTML = '<p class="text-on-surface-variant">No lyrics for this one.</p>';
+    } catch {
+      body.innerHTML = '<p class="text-on-surface-variant">Could not load lyrics. Check your connection.</p>';
+    }
+  }
+
+  $('p-lyrics').onclick = () => {
+    panel.classList.toggle('translate-x-[115%]');
+    if (!panel.classList.contains('translate-x-[115%]')) loadLyrics();
+  };
+  $('p-play').onclick = toggle;
+  $('p-next').onclick = next;
+  $('p-prev').onclick = previous;
+  $('p-shuffle').onclick = toggleShuffle;
+  $('p-repeat').onclick = cycleRepeat;
+  vol.oninput = (e) => setVolume(+(e.target as HTMLInputElement).value / 100);
+  $('p-seek').onclick = (e) => {
+    const r = $('p-seek').getBoundingClientRect();
+    const dur = current() ? Number($('p-dur').dataset.s) : 0;
+    if (dur) seek(((e.clientX - r.left) / r.width) * dur);
+  };
+
+  subscribe((s) => {
+    const t = s.queue[s.index];
+    const has = !!t;
+    if (has) {
+      if (t.thumbnail) {
+        if (art.getAttribute('src') !== t.thumbnail) art.src = t.thumbnail;
+        art.style.display = '';
+        artFallback.style.display = 'none';
+      } else {
+        art.style.display = 'none';
+        artFallback.style.display = '';
+      }
+      $('p-title').textContent = t.title;
+      $('p-artist').textContent = t.artist || t.album || 'Unknown artist';
+    } else {
+      art.removeAttribute('src');
+      art.style.display = 'none';
+      artFallback.style.display = '';
+      $('p-title').textContent = 'Nothing playing';
+      $('p-artist').textContent = 'Pick a song you like';
+    }
+    $('p-icon').textContent = s.loading ? 'hourglass_empty' : s.playing ? 'pause' : 'play_arrow';
+    $('p-play').dataset.playing = String(s.playing);
+    $('p-shuffle').firstElementChild!.className = `ms ${s.shuffle ? 'fill text-primary' : ''}`;
+    $('p-repeat').firstElementChild!.className = `ms ${s.repeat !== 'off' ? 'fill text-primary' : ''}`;
+    $('p-repeat').firstElementChild!.textContent = s.repeat === 'one' ? 'repeat_one' : 'repeat';
+    $('p-artbox').style.borderRadius = s.playing ? '28px' : '16px';
+    bar.classList.toggle('idle', !s.playing);
+    bar.classList.toggle('empty', !has);
+    $('p-pos').textContent = fmt(s.position);
+    $('p-dur').textContent = fmt(s.duration);
+    $('p-dur').dataset.s = String(s.duration);
+    $('p-wave').style.width = `${s.duration ? Math.min(100, (s.position / s.duration) * 100) : 0}%`;
+    if (has && !panel.classList.contains('translate-x-[115%]')) loadLyrics();
+    if (lines.length) {
+      const i = lines.findLastIndex((l) => l.t <= s.position + 0.15);
+      if (i !== activeLine) {
+        body.querySelector('.on')?.classList.remove('on');
+        const el = body.querySelector<HTMLElement>(`[data-l="${i}"]`);
+        el?.classList.add('on');
+        el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        activeLine = i;
+      }
+    }
+  });
+</script>

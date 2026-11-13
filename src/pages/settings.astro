@@ -1,0 +1,192 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Settings">
+  <h1 class="mb-8 text-5xl font-semibold tracking-tight">Settings</h1>
+
+  <section class="mb-6 max-w-3xl rounded-[28px] bg-surface-container p-6">
+    <h2 class="mb-1 text-xl font-medium">Appearance</h2>
+    <p class="mb-5 text-sm text-on-surface-variant">Colors follow your wallpaper. Pick the mood.</p>
+    <div class="mb-5 flex flex-wrap gap-2" id="mode-group" data-value="auto">
+      {[
+        { id: 'auto', label: 'Auto' },
+        { id: 'dark', label: 'Dark' },
+        { id: 'light', label: 'Light' },
+      ].map((m) => (
+        <button data-mode={m.id} class="chip">{m.label}</button>
+      ))}
+    </div>
+    <p class="mb-2 text-sm text-on-surface-variant">Palette style</p>
+    <div class="flex flex-wrap gap-2" id="scheme-group" data-value="tonal-spot">
+      {[
+        { id: 'tonal-spot', label: 'Tonal spot' },
+        { id: 'vibrant', label: 'Vibrant' },
+        { id: 'expressive', label: 'Expressive' },
+        { id: 'fidelity', label: 'Fidelity' },
+        { id: 'content', label: 'Content' },
+        { id: 'neutral', label: 'Neutral' },
+        { id: 'monochrome', label: 'Monochrome' },
+        { id: 'rainbow', label: 'Rainbow' },
+        { id: 'fruit-salad', label: 'Fruit salad' },
+      ].map((s) => (
+        <button data-scheme={s.id} class="chip">{s.label}</button>
+      ))}
+    </div>
+    <p class="mb-2 mt-5 text-sm text-on-surface-variant">Color source</p>
+    <div class="mb-3 flex flex-wrap items-center gap-2">
+      <button data-source="wallpaper" id="source-wallpaper" class="chip">Wallpaper</button>
+      <label id="source-color-chip" class="chip cursor-pointer flex items-center gap-2">
+        <span>Custom color</span>
+        <input id="source-color" type="color" value="#7c4dff" class="size-6 rounded-full bg-transparent outline-none" />
+      </label>
+    </div>
+    <p id="theme-status" class="text-sm text-on-surface-variant"></p>
+  </section>
+
+  <section class="mb-6 max-w-3xl rounded-[28px] bg-surface-container p-6">
+    <h2 class="mb-1 text-xl font-medium">Effects</h2>
+    <div class="mb-5 flex items-center justify-between">
+      <div>
+        <p class="font-medium">Glass blur</p>
+        <p class="text-sm text-on-surface-variant">Frosted blur on the player bar and panels.</p>
+      </div>
+      <button id="blur-toggle" class="switch" data-on="true"><span class="knob"></span></button>
+    </div>
+    <div>
+      <p class="font-medium">UI scale</p>
+      <p class="mb-4 text-sm text-on-surface-variant">Dynamic follows your system's text scaling.</p>
+      <div class="flex flex-wrap gap-2" id="scale-group" data-value="dynamic">
+        {[
+          { id: 'dynamic', label: 'Dynamic' },
+          { id: '0.9', label: '90%' },
+          { id: '1', label: '100%' },
+          { id: '1.1', label: '110%' },
+          { id: '1.25', label: '125%' },
+        ].map((s) => (
+          <button data-scale={s.id} class="chip">{s.label}</button>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-6 max-w-3xl rounded-[28px] bg-surface-container p-6">
+    <h2 class="mb-1 text-xl font-medium">Playback</h2>
+    <p class="mb-4 text-sm text-on-surface-variant">Starting volume for each session.</p>
+    <div class="flex items-center gap-4">
+      <span class="ms text-on-surface-variant">volume_down</span>
+      <input id="volume-default" type="range" min="0" max="100" class="w-64 accent-[var(--md-sys-color-primary)]" />
+      <span id="volume-label" class="w-10 text-sm tabular-nums text-on-surface-variant"></span>
+    </div>
+  </section>
+
+  <section class="max-w-3xl rounded-[28px] bg-surface-container p-6">
+    <h2 class="mb-1 text-xl font-medium">Data</h2>
+    <p class="mb-4 text-sm text-on-surface-variant">Everything is stored locally on this machine.</p>
+    <div class="flex flex-wrap gap-3">
+      <button id="clear-recent" class="chip">Clear listening history</button>
+      <button id="clear-likes" class="chip">Clear liked songs</button>
+      <button id="reset-all" class="chip">Reset everything</button>
+    </div>
+  </section>
+</Layout>
+<script>
+  import { loadOpts, saveOpts, pushTheme, type ThemeOpts } from '../lib/theme';
+  import { setVolume } from '../lib/player';
+  import { clearLikes, clearRecent } from '../lib/library';
+
+  document.addEventListener('astro:page-load', () => {
+    const status = document.getElementById('theme-status')!;
+    const modeGroup = document.getElementById('mode-group')!;
+    const schemeGroup = document.getElementById('scheme-group')!;
+    const blurToggle = document.getElementById('blur-toggle')!;
+    const scaleGroup = document.getElementById('scale-group')!;
+    const volInput = document.getElementById('volume-default') as HTMLInputElement;
+    const volLabel = document.getElementById('volume-label')!;
+    const colorInput = document.getElementById('source-color') as HTMLInputElement;
+    const sourceWallpaper = document.getElementById('source-wallpaper')!;
+    const sourceColorChip = document.getElementById('source-color-chip')!;
+
+    let opts: ThemeOpts = loadOpts();
+    let colorCache = opts.source.color ?? '#7c4dff';
+
+    const paint = () => {
+      modeGroup.dataset.value = opts.mode;
+      schemeGroup.dataset.value = opts.scheme;
+      blurToggle.dataset.on = String(opts.blur);
+      scaleGroup.dataset.value = String(opts.scale);
+      modeGroup.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) =>
+        b.classList.toggle('on', b.dataset.mode === opts.mode),
+      );
+      schemeGroup.querySelectorAll<HTMLButtonElement>('[data-scheme]').forEach((b) =>
+        b.classList.toggle('on', b.dataset.scheme === opts.scheme),
+      );
+      scaleGroup.querySelectorAll<HTMLButtonElement>('[data-scale]').forEach((b) =>
+        b.classList.toggle('on', b.dataset.scale === String(opts.scale)),
+      );
+      const source = opts.source.color ? 'color' : 'wallpaper';
+      sourceWallpaper.classList.toggle('on', source === 'wallpaper');
+      sourceColorChip.classList.toggle('on', source === 'color');
+      colorInput.value = opts.source.color ?? colorCache;
+      volInput.value = String(Math.round(parseFloat(localStorage.getItem('melissm.volume') ?? '1') * 100));
+      volLabel.textContent = volInput.value;
+    };
+
+    const commit = async () => {
+      saveOpts(opts);
+      paint();
+      status.textContent = 'Applying palette…';
+      const ok = await pushTheme(opts);
+      status.textContent = ok
+        ? 'Palette applied.'
+        : 'Matugen is not installed, falling back to the Caelestia scheme. Run: sudo pacman -S matugen';
+    };
+
+    const chip = (el: HTMLElement, sel: string, attr: string, fn: (v: string) => void) => {
+      el.querySelectorAll<HTMLButtonElement>(sel).forEach((b) =>
+        b.addEventListener('click', () => fn(b.dataset[attr]!)),
+      );
+    };
+
+    chip(modeGroup, '[data-mode]', 'mode', (v) => { opts.mode = v as ThemeOpts['mode']; void commit(); });
+    chip(schemeGroup, '[data-scheme]', 'scheme', (v) => { opts.scheme = v; void commit(); });
+    chip(scaleGroup, '[data-scale]', 'scale', (v) => {
+      opts.scale = v === 'dynamic' ? 'dynamic' : parseFloat(v);
+      saveOpts(opts);
+      paint();
+      void pushTheme(opts);
+    });
+    sourceWallpaper.addEventListener('click', () => { opts.source = { wallpaper: null }; void commit(); });
+    colorInput.addEventListener('input', () => {
+      colorCache = colorInput.value;
+      opts.source = { color: colorInput.value };
+      void commit();
+    });
+    blurToggle.addEventListener('click', () => {
+      opts.blur = !opts.blur;
+      saveOpts(opts);
+      paint();
+      void pushTheme(opts);
+    });
+    volInput.addEventListener('input', () => {
+      volLabel.textContent = volInput.value;
+      void setVolume(+volInput.value / 100);
+    });
+    document.getElementById('clear-recent')!.addEventListener('click', () => {
+      clearRecent();
+      status.textContent = 'Listening history cleared.';
+    });
+    document.getElementById('clear-likes')!.addEventListener('click', () => {
+      clearLikes();
+      status.textContent = 'Liked songs cleared.';
+    });
+    document.getElementById('reset-all')!.addEventListener('click', () => {
+      clearLikes();
+      clearRecent();
+      opts = { mode: 'auto', scheme: 'tonal-spot', source: { wallpaper: null }, blur: true, scale: 'dynamic' };
+      void commit();
+      status.textContent = 'Everything reset to defaults.';
+    });
+
+    paint();
+  });
+</script>

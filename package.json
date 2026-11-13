@@ -1,0 +1,23 @@
+{
+  "name": "melissm",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@fontsource-variable/rubik": "^5.1.0",
+    "@fontsource/material-symbols-rounded": "^5.1.0",
+    "@material/web": "^2.3.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@tauri-apps/api": "^2.0.0",
+    "astro": "^5.14.0",
+    "tailwindcss": "^4.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

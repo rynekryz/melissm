@@ -1,0 +1,26 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Library">
+  <div class="mb-8 flex items-center justify-between">
+    <h1 class="text-5xl font-semibold tracking-tight">Liked songs</h1>
+    <button id="play-all" class="press flex h-14 items-center gap-2 rounded-full bg-primary px-6 font-medium text-on-primary"><span class="ms fill">play_arrow</span>Play all</button>
+  </div>
+  <div id="liked" class="space-y-1"></div>
+</Layout>
+<script>
+  import { likes } from '../lib/library';
+  import { playQueue } from '../lib/player';
+  import { renderTracks } from '../lib/ui';
+
+  document.addEventListener('astro:page-load', () => {
+    const list = document.getElementById('liked');
+    if (!list) return;
+    const draw = () => {
+      const tracks = likes();
+      renderTracks(list, tracks, () => setTimeout(draw, 250));
+      document.getElementById('play-all')!.onclick = () => tracks.length && playQueue(tracks, 0);
+    };
+    draw();
+  });
+</script>

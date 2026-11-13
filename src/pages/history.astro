@@ -1,0 +1,25 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="History">
+  <div class="mb-8 flex items-center justify-between">
+    <h1 class="text-5xl font-semibold tracking-tight">History</h1>
+    <button id="clear-history" class="press flex h-14 items-center gap-2 rounded-full bg-primary px-6 font-medium text-on-primary"><span class="ms fill">delete</span>Clear</button>
+  </div>
+  <div id="history-list" class="space-y-1"></div>
+</Layout>
+<script>
+  import { clearRecent, recent } from '../lib/library';
+  import { renderTracks } from '../lib/ui';
+
+  document.addEventListener('astro:page-load', () => {
+    const list = document.getElementById('history-list');
+    if (!list) return;
+    const draw = () => renderTracks(list, recent(), draw);
+    document.getElementById('clear-history')!.addEventListener('click', () => {
+      clearRecent();
+      draw();
+    });
+    draw();
+  });
+</script>

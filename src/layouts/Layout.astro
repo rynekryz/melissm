@@ -1,0 +1,30 @@
+---
+import { ClientRouter } from 'astro:transitions';
+import Sidebar from '../components/Sidebar.astro';
+import PlayerBar from '../components/PlayerBar.astro';
+import '../styles/global.css';
+const { title } = Astro.props;
+const path = Astro.url.pathname;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · Melissm</title>
+    <ClientRouter />
+  </head>
+  <body class="overflow-hidden">
+    <div class="flex h-full gap-3 p-3 pb-[108px]">
+      <Sidebar path={path} />
+      <main class="min-w-0 flex-1 overflow-y-auto rounded-[28px] bg-surface p-8 transition-colors duration-700">
+        <slot />
+      </main>
+    </div>
+    <div transition:persist="player-root"><PlayerBar /></div>
+    <script>
+      import { initTheme } from '../lib/theme';
+      initTheme();
+    </script>
+  </body>
+</html>

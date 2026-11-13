@@ -1,0 +1,64 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Home">
+  <div id="greet-wrap" class="mb-10">
+    <h1 id="greeting" class="text-5xl font-semibold tracking-tight"></h1>
+    <p id="greet-sub" class="mt-2 text-on-surface-variant"></p>
+  </div>
+  <div id="sections" class="space-y-10">
+    <section id="recent-section" class="hidden">
+      <h2 class="mb-4 text-2xl font-medium">Jump back in</h2>
+      <div id="recent-row" class="h-row"></div>
+    </section>
+    <div id="skeleton" class="space-y-10">
+      <section><div class="mb-4 h-7 w-48 skeleton"></div><div class="h-row flex gap-4 overflow-hidden"><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div></div></section>
+      <section><div class="mb-4 h-7 w-40 skeleton"></div><div class="h-row flex gap-4 overflow-hidden"><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div></div></section>
+    </div>
+    <p id="home-status" class="text-on-surface-variant"></p>
+  </div>
+</Layout>
+<script>
+  import { home } from '../lib/api';
+  import { recent } from '../lib/library';
+  import { renderCards } from '../lib/ui';
+
+  document.addEventListener('astro:page-load', async () => {
+    const sectionsEl = document.getElementById('sections')!;
+    const greeting = document.getElementById('greeting')!;
+    const greetSub = document.getElementById('greet-sub')!;
+    if (!greeting.dataset.done) {
+      const h = new Date().getHours();
+      greeting.textContent = h < 5 ? 'Still up?' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+      greetSub.textContent = 'Here is what sounds good right now.';
+      greeting.dataset.done = '1';
+    }
+
+    const recents = recent();
+    if (recents.length) {
+      document.getElementById('recent-section')!.classList.remove('hidden');
+      renderCards(document.getElementById('recent-row')!, recents, { row: true });
+    }
+
+    const skeleton = document.getElementById('skeleton')!;
+    const status = document.getElementById('home-status')!;
+    try {
+      const sections = await home();
+      for (const s of sections) {
+        if (!s.tracks.length) continue;
+        const sec = document.createElement('section');
+        sec.innerHTML = `<h2 class="mb-4 text-2xl font-medium"></h2><div class="h-row"></div>`;
+        sec.querySelector('h2')!.textContent = s.title;
+        const row = sec.querySelector<HTMLElement>('.h-row')!;
+        sectionsEl.insertBefore(sec, skeleton);
+        renderCards(row, s.tracks, { row: true });
+      }
+      skeleton.remove();
+      status.remove();
+    } catch (e) {
+      skeleton.remove();
+      status.textContent = 'Could not reach YouTube Music. Check your connection and try again.';
+      console.error(e);
+    }
+  });
+</script>

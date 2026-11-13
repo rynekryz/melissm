@@ -1,0 +1,44 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Search">
+  <label class="mb-8 flex h-16 items-center gap-3 rounded-full bg-surface-container-high px-6 transition-colors duration-700 focus-within:bg-surface-container-highest">
+    <span class="ms text-on-surface-variant">search</span>
+    <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Songs, artists, albums" class="h-full flex-1 bg-transparent text-lg outline-none placeholder:text-on-surface-variant" />
+  </label>
+  <div id="results" class="space-y-1"></div>
+  <p id="search-status" class="mt-4 text-on-surface-variant"></p>
+</Layout>
+<script>
+  import { search } from '../lib/api';
+  import { renderTracks } from '../lib/ui';
+
+  document.addEventListener('astro:page-load', () => {
+    const input = document.getElementById('q') as HTMLInputElement | null;
+    if (!input) return;
+    const results = document.getElementById('results')!;
+    const status = document.getElementById('search-status')!;
+    let timer: number;
+    let seq = 0;
+    const run = async () => {
+      const q = input.value.trim();
+      if (!q) return;
+      const id = ++seq;
+      status.textContent = 'Searching…';
+      try {
+        const tracks = await search(q);
+        if (id !== seq) return;
+        status.textContent = tracks.length ? '' : 'No songs found. Try a different search.';
+        renderTracks(results, tracks);
+      } catch (e) {
+        status.textContent = `Search failed: ${e}`;
+      }
+    };
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = window.setTimeout(run, 350);
+    });
+    input.addEventListener('keydown', (e) => e.key === 'Enter' && run());
+    if (document.hasFocus()) input.focus();
+  });
+</script>

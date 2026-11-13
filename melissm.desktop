@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Melissm
+Comment=It plays music, literally. what else would it do
+Exec=melissm
+Icon=melissm
+Terminal=false
+Categories=Audio;Music;Player;AudioVideo;
+StartupWMClass=dev.ryne.melissm

@@ -1,0 +1,28 @@
+---
+const { path } = Astro.props;
+const items = [
+  { href: '/', icon: 'home', label: 'Home' },
+  { href: '/search', icon: 'search', label: 'Search' },
+  { href: '/library', icon: 'library_music', label: 'Library' },
+  { href: '/history', icon: 'history', label: 'History' },
+  { href: '/settings', icon: 'settings', label: 'Settings' },
+  { href: '/about', icon: 'info', label: 'About' },
+];
+const active = (href: string) => (href === '/' ? path === '/' : path.startsWith(href));
+---
+<nav class="flex w-24 shrink-0 flex-col items-center gap-2 rounded-[28px] bg-surface-container py-6 transition-colors duration-700">
+  <div class="mb-6 grid size-12 place-items-center rounded-[18px] bg-primary text-on-primary">
+    <svg viewBox="0 0 1024 1024" class="size-9" fill="none" stroke-linecap="round" stroke-width="84" aria-hidden="true">
+      <path d="M 240 512 C 330 352, 430 352, 512 512 S 694 672, 784 512" transform="translate(0 85)" stroke="currentColor" opacity="0.45" />
+      <path d="M 240 512 C 330 352, 430 352, 512 512 S 694 672, 784 512" transform="translate(0 -75)" stroke="currentColor" />
+    </svg>
+  </div>
+  {items.map((i) => (
+    <a href={i.href} class="group flex w-full flex-col items-center gap-1 py-1 text-xs" aria-label={i.label}>
+      <span class:list={['press grid h-8 w-14 place-items-center rounded-full', active(i.href) ? 'bg-secondary-container text-on-secondary-container' : 'group-hover:bg-surface-container-highest']}>
+        <span class:list={['ms', active(i.href) && 'fill']}>{i.icon}</span>
+      </span>
+      <span class:list={[active(i.href) ? 'font-medium' : 'text-on-surface-variant']}>{i.label}</span>
+    </a>
+  ))}
+</nav>
