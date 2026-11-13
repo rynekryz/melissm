@@ -342,7 +342,7 @@ fn palette(base: &str, mode: &str) -> BTreeMap<String, String> {
         ("#b3261e", "#ffffff", "#f9dedc", "#410e0b")
     };
     BTreeMap::from([
-        ("primary".into(), p),
+        ("primary".into(), p.clone()),
         ("on-primary".into(), op),
         ("primary-container".into(), pc),
         ("on-primary-container".into(), pco),
