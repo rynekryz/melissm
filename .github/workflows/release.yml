@@ -28,7 +28,7 @@ jobs:
           $pc = Get-ChildItem 'C:\Program Files', 'C:\Program Files (x86)', 'C:\gstreamer' -Recurse -Filter glib-2.0.pc -ErrorAction SilentlyContinue -Depth 6 | Select-Object -First 1
           "glib pc at: $($pc.FullName)"
           if (-not $pc) { Get-ChildItem 'C:\' -Directory | Select-Object -ExpandProperty Name; exit 1 }
-          $root = (Resolve-Path (Join-Path $pc.DirectoryName '..\..\..')).Path
+          $root = (Resolve-Path (Join-Path $pc.DirectoryName '..\..')).Path
           "gstreamer root: $root"
           "GSTREAMER_1_0_ROOT_MSVC_X86_64=$root\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "PKG_CONFIG_PATH=$($pc.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
