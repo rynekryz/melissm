@@ -13,6 +13,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install GStreamer MSVC
+        shell: pwsh
+        run: |
+          $v = "1.26.11"
+          $base = "https://gstreamer.freedesktop.org/data/pkg/windows/$v/msvc"
+          Invoke-WebRequest "$base/gstreamer-1.0-msvc-x86_64-$v.msi" -OutFile gst-runtime.msi
+          Invoke-WebRequest "$base/gstreamer-1.0-devel-msvc-x86_64-$v.msi" -OutFile gst-devel.msi
+          Start-Process msiexec.exe -ArgumentList "/i gst-runtime.msi /qn TARGETDIR=C:\gstreamer" -Wait
+          Start-Process msiexec.exe -ArgumentList "/i gst-devel.msi /qn TARGETDIR=C:\gstreamer" -Wait
+          "GSTREAMER_1_0_ROOT_MSVC_X86_64=C:\gstreamer\1.0\msvc_x86_64\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
