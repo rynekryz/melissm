@@ -51,4 +51,3 @@ jobs:
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
             Melissm-*-x64-portable.exe
-          prerelease: ${{ contains(github.ref_name, '-') }}
