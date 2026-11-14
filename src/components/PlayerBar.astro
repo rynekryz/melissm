@@ -339,6 +339,7 @@
     $('p-pos').textContent = fmt(s.position);
     $('p-dur').textContent = fmt(s.duration);
     $('p-dur').dataset.s = String(s.duration);
+    $('fp-dur').dataset.s = String(s.duration);
     const pct = `${s.duration ? Math.min(100, (s.position / s.duration) * 100) : 0}%`;
     $('p-wave').style.width = pct;
     $('p-seek').style.setProperty('--p', pct);

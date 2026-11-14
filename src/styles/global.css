@@ -131,7 +131,7 @@ img { -webkit-user-drag: none; user-drag: none; }
 
 .xslider { position: relative; height: 44px; min-width: 128px; display: flex; align-items: center; cursor: pointer; --p: 0%; }
 .xslider input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: inherit; margin: 0; z-index: 1; }
-.xslider .xtrack { position: absolute; inset: 0 12px; top: 50%; height: 16px; transform: translateY(-50%); border-radius: 8px; background: var(--md-sys-color-surface-container-highest); -webkit-mask: linear-gradient(to right, transparent var(--p), black var(--p)); mask: linear-gradient(to right, transparent var(--p), black var(--p)); transition: border-radius 0.4s var(--spring); }
+.xslider .xtrack { position: absolute; inset: 0 12px; top: 50%; height: 16px; transform: translateY(-50%); border-radius: 8px; background: color-mix(in srgb, var(--md-sys-color-on-surface) 16%, transparent); -webkit-mask: linear-gradient(to right, transparent var(--p), black var(--p)); mask: linear-gradient(to right, transparent var(--p), black var(--p)); transition: border-radius 0.4s var(--spring); }
 .xslider .xfill { position: absolute; left: 12px; right: 12px; top: 50%; height: 16px; transform: translateY(-50%); border-radius: 8px; background: var(--md-sys-color-primary); width: auto; clip-path: inset(0 calc(100% - var(--p)) 0 0); transition: border-radius 0.4s var(--spring); }
 .xslider[data-at="start"] .xfill { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .xslider[data-at="end"] .xfill { border-top-right-radius: 0; border-bottom-right-radius: 0; }
@@ -141,7 +141,7 @@ img { -webkit-user-drag: none; user-drag: none; }
 .xslider:hover .xhandle, .xslider.dragging .xhandle, .xslider input:focus-visible ~ .xhandle { height: 48px; }
 
 #p-seek { --p: 0%; }
-#p-seek-track { background: var(--md-sys-color-surface-container-highest); -webkit-mask: linear-gradient(to right, transparent var(--p), black var(--p)); mask: linear-gradient(to right, transparent var(--p), black var(--p)); }
+#p-seek-track { background: color-mix(in srgb, var(--md-sys-color-on-surface) 16%, transparent); -webkit-mask: linear-gradient(to right, transparent var(--p), black var(--p)); mask: linear-gradient(to right, transparent var(--p), black var(--p)); }
 
 .track { display: flex; align-items: center; gap: 16px; padding: 8px 16px 8px 8px; border-radius: 20px; cursor: pointer; transition: background-color 0.25s, border-radius 0.4s var(--spring); content-visibility: auto; contain-intrinsic-size: auto 72px; }
 .track:hover { background: var(--md-sys-color-surface-container-high); border-radius: 28px; }

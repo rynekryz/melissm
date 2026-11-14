@@ -79,6 +79,7 @@ export async function playAt(index: number) {
   state.index = index;
   state.loading = true;
   state.playing = false;
+  holdUntil = 0;
   state.position = 0;
   state.duration = state.queue[index].duration;
   emit();
@@ -159,9 +160,24 @@ export function setQuality(quality: Quality) {
   emit();
 }
 
+let holdPlaying = false;
+let holdUntil = 0;
+const holdPlayingTo = (playing: boolean) => {
+  holdPlaying = playing;
+  holdUntil = Date.now() + 700;
+  state.playing = playing;
+  emit();
+};
+const playingHeld = (reported: boolean) => {
+  if (Date.now() < holdUntil && reported !== holdPlaying) return holdPlaying;
+  holdUntil = 0;
+  return reported;
+};
+
 export async function toggle() {
   if (!current() || state.loading) return;
-  await invoke(state.playing ? 'pause' : 'resume');
+  holdPlayingTo(!state.playing);
+  await invoke(state.playing ? 'resume' : 'pause');
 }
 
 let seekHold = 0;
@@ -187,7 +203,7 @@ export function onError(fn: (msg: string) => void) {
 if (isTauri) {
   listen<{ playing: boolean; position: number; duration: number }>('player-state', (e) => {
     if (state.loading) return;
-    state.playing = e.payload.playing;
+    state.playing = playingHeld(e.payload.playing);
     if (seekHold && Date.now() - seekHold < 700 && Math.abs(e.payload.position - seekTarget) > 1.2) {
       state.position = seekTarget;
     } else {
@@ -205,8 +221,8 @@ if (isTauri) {
     const p = e.payload;
     switch (p) {
       case 'play-pause': void toggle(); break;
-      case 'play': if (current() && !state.playing && !state.loading) void invoke('resume'); break;
-      case 'pause': if (state.playing) void invoke('pause'); break;
+      case 'play': if (current() && !state.playing && !state.loading) { holdPlayingTo(true); void invoke('resume'); } break;
+      case 'pause': if (state.playing) { holdPlayingTo(false); void invoke('pause'); } break;
       case 'next': void next(); break;
       case 'previous': void previous(); break;
       case 'shuffle': toggleShuffle(); break;
