@@ -280,7 +280,7 @@ impl Yt {
         ]
     }
 
-    pub async fn resolve_stream(&self, id: &str) -> Result<(String, f64, &'static str), String> {
+    pub async fn resolve_stream(&self, id: &str, quality: &str) -> Result<(String, f64, &'static str), String> {
         let visitor = extract_visitor(&self.watch_page(id).await.unwrap_or_default());
 
         for (body, ua, web) in Self::stream_attempts(id, &visitor) {
@@ -294,17 +294,75 @@ impl Yt {
                 .and_then(|s| s.parse::<f64>().ok())
                 .unwrap_or(0.0);
             let formats = v.pointer("/streamingData/adaptiveFormats").and_then(Value::as_array);
-            let url = formats
-                .and_then(|a| {
+            let audio: Vec<&Value> = formats
+                .map(|a| {
                     a.iter()
                         .filter(|f| f["mimeType"].as_str().is_some_and(|m| m.starts_with("audio/")) && f["url"].is_string())
-                        .max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0))
-                        .and_then(|f| f["url"].as_str().map(String::from))
-                });
-            if let Some(url) = url {
-                return Ok((url, duration, ua));
+                        .collect()
+                })
+                .unwrap_or_default();
+            let pick = match quality {
+                "low" => audio.iter().copied().min_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)),
+                "high" => audio
+                    .iter()
+                    .copied()
+                    .filter(|f| f["bitrate"].as_u64().unwrap_or(0) <= 192_000)
+                    .max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)),
+                _ => audio.iter().copied().max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)),
+            };
+            let pick = pick.or_else(|| audio.iter().copied().max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)));
+            if let Some(f) = pick.and_then(|f| f["url"].as_str()) {
+                return Ok((f.to_string(), duration, ua));
             }
         }
         Err("no playable stream".into())
+    }
+}
+
+fn parse_radio_item(r: &Value) -> Option<Track> {
+    let id = r.get("videoId").and_then(Value::as_str)?;
+    let title = r.pointer("/title/runs/0/text")?.as_str()?.to_string();
+    let artist = r.pointer("/shortBylineText/runs/0/text").and_then(Value::as_str).unwrap_or_default().to_string();
+    let duration = r
+        .pointer("/lengthText/runs/0/text")
+        .and_then(Value::as_str)
+        .map(parse_seconds)
+        .unwrap_or(0.0);
+    let thumb = r
+        .pointer("/thumbnail/thumbnails")
+        .and_then(Value::as_array)
+        .and_then(|a| a.last())
+        .and_then(|t| t.get("url"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Some(Track {
+        id: id.into(),
+        title,
+        artist,
+        album: String::new(),
+        duration,
+        thumbnail: thumb,
+        is_album: false,
+    })
+}
+
+impl Yt {
+    pub async fn radio(&self, id: &str) -> Result<Vec<Track>, String> {
+        let body = json!({
+            "context": web_context(),
+            "videoId": id,
+            "playlistId": format!("RDAMVM{id}"),
+        });
+        let v = self.post("next", body, WEB_UA, true).await?;
+        let mut items = vec![];
+        collect(&v, "playlistPanelVideoRenderer", &mut items);
+        Ok(dedupe(
+            items
+                .into_iter()
+                .filter_map(parse_radio_item)
+                .filter(|t| t.id != id)
+                .collect(),
+        ))
     }
 }

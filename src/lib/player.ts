@@ -1,10 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { isTauri } from './api';
+import { isTauri, radio } from './api';
 import { pushRecent } from './library';
 
 export type Track = { id: string; title: string; artist: string; album: string; duration: number; thumbnail: string; is_album?: boolean };
 export type RepeatMode = 'off' | 'all' | 'one';
+export type Quality = 'max' | 'high' | 'low';
 export type PlayerState = {
   queue: Track[];
   index: number;
@@ -15,11 +16,13 @@ export type PlayerState = {
   volume: number;
   shuffle: boolean;
   repeat: RepeatMode;
+  quality: Quality;
 };
 
 const VOL_KEY = 'melissm.volume';
 const SHUFFLE_KEY = 'melissm.shuffle';
 const REPEAT_KEY = 'melissm.repeat';
+const QUALITY_KEY = 'melissm.quality';
 
 const state: PlayerState = {
   queue: [],
@@ -36,6 +39,9 @@ const state: PlayerState = {
   repeat: (['off', 'all', 'one'].includes(localStorage.getItem(REPEAT_KEY) ?? '')
     ? localStorage.getItem(REPEAT_KEY)
     : 'off') as RepeatMode,
+  quality: (['max', 'high', 'low'].includes(localStorage.getItem(QUALITY_KEY) ?? '')
+    ? localStorage.getItem(QUALITY_KEY)
+    : 'max') as Quality,
 };
 const bus = new EventTarget();
 let lastSync = '';
@@ -77,7 +83,7 @@ export async function playAt(index: number) {
   state.duration = state.queue[index].duration;
   emit();
   try {
-    state.duration = (await invoke<number>('play', { id: state.queue[index].id })) || state.duration;
+    state.duration = (await invoke<number>('play', { id: state.queue[index].id, quality: state.quality })) || state.duration;
     pushRecent(state.queue[index]);
   } catch (e) {
     if (String(e) === 'superseded') return;
@@ -96,11 +102,40 @@ export async function playQueue(tracks: Track[], index: number) {
   await playAt(index);
 }
 
+let extending = false;
+export async function extendQueue(): Promise<boolean> {
+  const t = current();
+  if (!t || extending) return false;
+  extending = true;
+  try {
+    const related = await radio(t.id);
+    const fresh = related.filter((r) => !state.queue.some((q) => q.id === r.id)).slice(0, 25);
+    if (fresh.length) {
+      state.queue.push(...fresh);
+      emit();
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    extending = false;
+  }
+}
+
 export async function next() {
   if (state.shuffle && state.queue.length > 1) {
     let i = state.index;
     while (i === state.index) i = Math.floor(Math.random() * state.queue.length);
     return playAt(i);
+  }
+  if (state.index >= state.queue.length - 1) {
+    const added = await extendQueue();
+    if (!added) {
+      state.playing = false;
+      emit();
+      return;
+    }
   }
   return playAt(state.index + 1);
 }
@@ -115,6 +150,12 @@ export function toggleShuffle() {
 export function cycleRepeat() {
   state.repeat = state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off';
   localStorage.setItem(REPEAT_KEY, state.repeat);
+  emit();
+}
+
+export function setQuality(quality: Quality) {
+  state.quality = quality;
+  localStorage.setItem(QUALITY_KEY, quality);
   emit();
 }
 
@@ -151,8 +192,7 @@ if (isTauri) {
     if (state.repeat === 'one') return void playAt(state.index);
     if (state.index >= state.queue.length - 1 && state.repeat === 'all') return void playAt(0);
     void next();
-  });
-  listen<string>('tray-action', (e) => {
+  });  listen<string>('tray-action', (e) => {
     const p = e.payload;
     switch (p) {
       case 'play-pause': void toggle(); break;
@@ -175,5 +215,13 @@ if (isTauri) {
     bus.dispatchEvent(new CustomEvent('error', { detail: String(e.payload) }));
   });
   invoke('volume', { value: state.volume });
+  const speed = parseFloat(localStorage.getItem('melissm.speed') ?? '1');
+  const pitch = parseInt(localStorage.getItem('melissm.pitch') ?? '0', 10);
+  void invoke('set_speed', { value: Number.isFinite(speed) ? speed : 1 });
+  void invoke('set_pitch', { value: Number.isFinite(pitch) ? Math.pow(2, pitch / 12) : 1 });
+  try {
+    const eq = JSON.parse(localStorage.getItem('melissm.eq') ?? '[]');
+    if (Array.isArray(eq) && eq.length === 10) eq.forEach((g: number, i: number) => void invoke('set_eq', { band: i, gain: +g }));
+  } catch {}
   emit();
 }

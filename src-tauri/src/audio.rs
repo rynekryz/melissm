@@ -31,18 +31,47 @@ struct Status {
     duration: f64,
 }
 
+#[derive(Clone)]
+pub struct Filter {
+    pub chain: gstreamer::Element,
+    pub pitch: gstreamer::Element,
+    pub eq: gstreamer::Element,
+}
+
+fn build_filter() -> Result<Filter, gstreamer::glib::BoolError> {
+    let pitch = ElementFactory::make("pitch").name("melissm_pitch").build()?;
+    let eq = ElementFactory::make("equalizer-10bands").name("melissm_eq").build()?;
+    let bin = gstreamer::Bin::default();
+    bin.add_many([&pitch, &eq])?;
+    pitch.link(&eq)?;
+    let sink = pitch
+        .static_pad("sink")
+        .ok_or_else(|| gstreamer::glib::bool_error!("pitch has no sink pad"))?;
+    let src = eq
+        .static_pad("src")
+        .ok_or_else(|| gstreamer::glib::bool_error!("equalizer has no src pad"))?;
+    bin.add_pad(&gstreamer::GhostPad::with_target(&sink)?)?;
+    bin.add_pad(&gstreamer::GhostPad::with_target(&src)?)?;
+    Ok(Filter { chain: bin.upcast(), pitch, eq })
+}
+
 pub struct Player {
     tx: mpsc::Sender<Cmd>,
     pub generation: Arc<AtomicU64>,
+    pub filter: Option<Filter>,
 }
 
 impl Player {
     pub fn new(app: AppHandle) -> Self {
+        gstreamer::init().ok();
+        let filter = build_filter().ok();
         let (tx, rx) = mpsc::channel();
-        thread::spawn(move || run(app, rx));
+        let f = filter.clone();
+        thread::spawn(move || run(app, rx, f));
         Self {
             tx,
             generation: Arc::new(AtomicU64::new(0)),
+            filter,
         }
     }
 
@@ -51,13 +80,16 @@ impl Player {
     }
 }
 
-fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>) {
+fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>, filter: Option<Filter>) {
     if gstreamer::init().is_err() {
         return;
     }
     let Ok(playbin) = ElementFactory::make("playbin").build() else {
         return;
     };
+    if let Some(f) = &filter {
+        playbin.set_property("audio-filter", &f.chain);
+    }
 
     let pending_ua: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     {

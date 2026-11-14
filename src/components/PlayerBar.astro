@@ -1,4 +1,4 @@
-<div id="lyrics-panel" class="lyrics-glass fixed right-3 top-3 bottom-[108px] z-20 flex w-[380px] translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
+<div id="lyrics-panel" class="lyrics-glass fixed right-3 top-3 bottom-[108px] z-50 flex w-[380px] translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
   <h2 class="mb-2 shrink-0 px-2 text-lg font-medium">Lyrics</h2>
   <div id="lyrics-viewport" class="lyrics-mask flex-1 overflow-y-auto pr-2">
     <div id="lyrics-body" class="space-y-6 pb-24 pt-10 text-2xl font-medium leading-snug"></div>
@@ -45,6 +45,51 @@
   </div>
 </div>
 
+<div id="p-full" aria-hidden="true">
+  <img id="fp-bg" alt="" class="absolute inset-0 size-full scale-125 object-cover opacity-0 blur-[64px]" />
+  <div class="absolute inset-0 scrim"></div>
+  <button id="fp-close" class="press absolute left-8 top-8 z-20 grid size-14 place-items-center rounded-full bg-surface-container/90 text-on-surface shadow-lg shadow-black/30 hover:bg-surface-container-highest" aria-label="Close player"><span class="ms">expand_more</span></button>
+  <div class="fp-pop relative z-10 grid h-full w-full max-w-[1400px] grid-cols-[minmax(0,42%)_minmax(0,58%)] items-center gap-16 px-24 py-10">
+    <div class="relative mx-auto aspect-square h-auto max-h-[68vh] w-[min(40vw,68vh)]">
+      <div class="fp-art absolute inset-0 grid place-items-center bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60" style="font-size:64px">music_note</span></div>
+      <img id="fp-art-a" alt="" class="fp-art absolute inset-0 size-full object-cover" />
+      <img id="fp-art-b" alt="" class="fp-art absolute inset-0 size-full object-cover" />
+    </div>
+    <div class="flex min-w-0 flex-col justify-center">
+      <h1 id="fp-title" class="line-clamp-3 text-6xl font-semibold tracking-tight">Nothing playing</h1>
+      <p id="fp-artist" class="mt-3 text-2xl text-on-surface-variant">Pick a song you like</p>
+      <div class="mt-10 flex items-center gap-4">
+        <span id="fp-pos" class="w-12 text-right text-sm tabular-nums text-on-surface-variant">0:00</span>
+        <div id="fp-seek" class="xslider min-w-0 flex-1">
+          <input id="fp-seek-input" type="range" min="0" max="1000" step="1" aria-label="Seek" />
+          <div class="xtrack"></div>
+          <div class="xfill"></div>
+          <div class="xhandle"></div>
+        </div>
+        <span id="fp-dur" class="w-12 text-sm tabular-nums text-on-surface-variant">0:00</span>
+      </div>
+      <div class="mt-6 flex items-center gap-3">
+        <button id="fp-like" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Like"><span id="fp-like-icon" class="ms text-[26px]">favorite</span></button>
+        <button id="fp-shuffle" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Shuffle"><span class="ms text-[26px]">shuffle</span></button>
+        <button id="fp-prev" class="press grid size-16 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Previous"><span class="ms fill text-[30px]">skip_previous</span></button>
+        <button id="fp-play" data-playing="false" class="press play-btn grid size-20 place-items-center bg-primary text-on-primary shadow-xl shadow-black/30" aria-label="Play or pause"><span id="fp-icon" class="ms fill text-[40px]">play_arrow</span></button>
+        <button id="fp-next" class="press grid size-16 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Next"><span class="ms fill text-[30px]">skip_next</span></button>
+        <button id="fp-repeat" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span id="fp-repeat-icon" class="ms text-[26px]">repeat</span></button>
+        <button id="fp-lyrics" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics"><span class="ms text-[26px]">lyrics</span></button>
+      </div>
+      <div class="mt-8 flex w-72 items-center gap-3">
+        <span class="ms text-on-surface-variant">volume_up</span>
+        <div id="fp-vol" class="xslider min-w-0 flex-1">
+          <input id="fp-vol-input" type="range" min="0" max="100" aria-label="Volume" />
+          <div class="xtrack"></div>
+          <div class="xfill"></div>
+          <div class="xhandle"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   import { current, cycleRepeat, next, onError, previous, seek, setVolume, subscribe, toggle, toggleShuffle } from '../lib/player';
   import { isLiked, toggleLike } from '../lib/library';
@@ -58,9 +103,35 @@
   const art = $<HTMLImageElement>('p-art');
   const artFallback = $('p-art-fallback');
   const vol = $<HTMLInputElement>('p-vol');
+  const full = $('p-full');
+  const fpSeek = $('fp-seek');
+  const fpSeekInput = $<HTMLInputElement>('fp-seek-input');
+  const fpVol = $('fp-vol');
+  const fpVolInput = $<HTMLInputElement>('fp-vol-input');
   let lines: { t: number; text: string }[] = [];
   let lyricsFor = '';
   let activeLine = -1;
+
+  const polar = (fn: (a: number) => number, steps = 220) => {
+    let d = '';
+    for (let i = 0; i <= steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      const r = Math.max(0.05, Math.min(1, fn(a)));
+      d += `${i ? 'L' : 'M'}${(0.5 + (r * Math.cos(a)) / 2).toFixed(4)} ${(0.5 + (r * Math.sin(a)) / 2).toFixed(4)}`;
+    }
+    return d + 'Z';
+  };
+  const SHAPES = [
+    polar((a) => 0.85 + 0.15 * Math.cos(12 * a)),
+    polar((a) => 0.7 + 0.3 * Math.abs(Math.cos(6 * a)) ** 0.75),
+    polar((a) => 0.78 + 0.22 * Math.cos(8 * a)),
+    polar((a) => 0.8 + 0.2 * Math.cos(4 * a)),
+    polar((a) => 0.9 + 0.1 * Math.cos(2 * a)),
+    polar((a) => 0.68 + 0.32 * Math.abs(Math.cos(5 * a)) ** 0.85),
+  ];
+  let front = 'a';
+  let songCount = 0;
+  let lastTrackId = '';
 
   const parseLrc = (lrc: string) =>
     lrc
@@ -70,6 +141,7 @@
       .map((m) => ({ t: +m[1] * 60 + +m[2], text: m[3].trim() }));
 
   vol.value = String(Math.round(parseFloat(localStorage.getItem('melissm.volume') ?? '1') * 100));
+  fpVolInput.value = vol.value;
 
   onError((msg) => {
     $('p-artist').textContent = msg.includes('no playable stream') ? 'Playback failed, try another song' : 'Something went wrong';
@@ -96,7 +168,60 @@
     }
   }
 
+  const openFull = () => {
+    full.classList.add('open');
+    full.setAttribute('aria-hidden', 'false');
+    loadLyrics();
+  };
+  const closeFull = () => {
+    full.classList.remove('open');
+    full.setAttribute('aria-hidden', 'true');
+  };
+  bar.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest('button, .xslider, #p-seek')) return;
+    openFull();
+  });
+  $('fp-close').onclick = closeFull;
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && full.classList.contains('open')) closeFull();
+  });
+
+  const syncFpControls = (playing: boolean, shuffle: boolean, repeat: string) => {
+    $('fp-icon').textContent = playing ? 'pause' : 'play_arrow';
+    $('fp-play').dataset.playing = String(playing);
+    $('fp-shuffle').firstElementChild!.className = `ms text-[26px] ${shuffle ? 'fill text-primary' : ''}`;
+    $('fp-repeat-icon').className = `ms text-[26px] ${repeat !== 'off' ? 'fill text-primary' : ''}`;
+    $('fp-repeat-icon').textContent = repeat === 'one' ? 'repeat_one' : 'repeat';
+  };
+
+  const setArt = (src: string) => {
+    const a = $<HTMLImageElement>('fp-art-a');
+    const b = $<HTMLImageElement>('fp-art-b');
+    const back = front === 'a' ? b : a;
+    const frontEl = front === 'a' ? a : b;
+    if (!src) {
+      a.style.opacity = '0';
+      b.style.opacity = '0';
+      return;
+    }
+    back.src = src;
+    back.style.clipPath = `path('${SHAPES[songCount % SHAPES.length]}')`;
+    back.style.transform = 'rotate(14deg) scale(1.15)';
+    requestAnimationFrame(() => {
+      back.style.opacity = '1';
+      back.style.transform = 'rotate(0deg) scale(1)';
+      frontEl.style.opacity = '0';
+      frontEl.style.transform = 'rotate(-14deg) scale(1.15)';
+    });
+    front = front === 'a' ? 'b' : 'a';
+    songCount++;
+  };
+
   $('p-lyrics').onclick = () => {
+    panel.classList.toggle('translate-x-[115%]');
+    if (!panel.classList.contains('translate-x-[115%]')) loadLyrics();
+  };
+  $('fp-lyrics').onclick = () => {
     panel.classList.toggle('translate-x-[115%]');
     if (!panel.classList.contains('translate-x-[115%]')) loadLyrics();
   };
@@ -105,18 +230,44 @@
   $('p-prev').onclick = previous;
   $('p-shuffle').onclick = toggleShuffle;
   $('p-repeat').onclick = cycleRepeat;
-  $('p-like').onclick = () => {
+  $('fp-play').onclick = toggle;
+  $('fp-next').onclick = next;
+  $('fp-prev').onclick = previous;
+  $('fp-shuffle').onclick = toggleShuffle;
+  $('fp-repeat').onclick = cycleRepeat;
+  const doLike = (iconId: string) => {
     const t = current();
     if (!t) return;
     toggleLike(t);
-    $('p-like-icon').className = `ms ${isLiked(t.id) ? 'fill text-primary' : ''}`;
+    $(iconId).className = `ms ${isLiked(t.id) ? 'fill text-primary' : ''}`;
   };
-  vol.oninput = (e) => setVolume(+(e.target as HTMLInputElement).value / 100);
+  $('p-like').onclick = () => doLike('p-like-icon');
+  $('fp-like').onclick = () => doLike('fp-like-icon');
+  vol.oninput = (e) => {
+    const v = +(e.target as HTMLInputElement).value / 100;
+    fpVolInput.value = (e.target as HTMLInputElement).value;
+    setVolume(v);
+  };
+  fpVolInput.oninput = (e) => {
+    const raw = (e.target as HTMLInputElement).value;
+    vol.value = raw;
+    setVolume(+raw / 100);
+  };
   $('p-seek').onclick = (e) => {
     const r = $('p-seek').getBoundingClientRect();
     const dur = current() ? Number($('p-dur').dataset.s) : 0;
     if (dur) seek(((e.clientX - r.left) / r.width) * dur);
   };
+  fpSeekInput.addEventListener('input', () => {
+    const ratio = +fpSeekInput.value / 1000;
+    fpSeek.style.setProperty('--p', `${ratio * 100}%`);
+    fpSeek.style.setProperty('--p-num', String(ratio));
+    $('fp-pos').textContent = fmt(ratio * Number($('fp-dur').dataset.s || '0'));
+  });
+  fpSeekInput.addEventListener('change', () => {
+    const dur = Number($('fp-dur').dataset.s || '0');
+    if (dur) seek((+fpSeekInput.value / 1000) * dur);
+  });
 
   subscribe((s) => {
     const t = s.queue[s.index];
@@ -133,6 +284,14 @@
       $('p-title').textContent = t.title;
       $('p-artist').textContent = t.artist || t.album || 'Unknown artist';
       $('p-like-icon').className = `ms ${isLiked(t.id) ? 'fill text-primary' : ''}`;
+      $('fp-like-icon').className = `ms text-[26px] ${isLiked(t.id) ? 'fill text-primary' : ''}`;
+      if (t.id !== lastTrackId) {
+        lastTrackId = t.id;
+        $('fp-title').textContent = t.title;
+        $('fp-artist').textContent = t.artist || t.album || 'Unknown artist';
+        $('fp-bg').src = t.thumbnail || '';
+        setArt(t.thumbnail);
+      }
     } else {
       art.removeAttribute('src');
       art.style.display = 'none';
@@ -155,6 +314,15 @@
     const pct = `${s.duration ? Math.min(100, (s.position / s.duration) * 100) : 0}%`;
     $('p-wave').style.width = pct;
     $('p-seek').style.setProperty('--p', pct);
+    if (!fpSeek.classList.contains('dragging')) {
+      fpSeekInput.value = String(Math.round(s.duration ? (s.position / s.duration) * 1000 : 0));
+      fpSeek.style.setProperty('--p', pct);
+      fpSeek.style.setProperty('--p-num', String(s.duration ? Math.min(1, s.position / s.duration) : 0));
+      $('fp-pos').textContent = fmt(s.position);
+      $('fp-dur').textContent = fmt(s.duration);
+    }
+    if (!fpVol.classList.contains('dragging')) fpVolInput.value = vol.value;
+    syncFpControls(s.playing, s.shuffle, s.repeat);
     if (has && !panel.classList.contains('translate-x-[115%]')) loadLyrics();
     if (lines.length) {
       const i = lines.findLastIndex((l) => l.t <= s.position + 0.15);

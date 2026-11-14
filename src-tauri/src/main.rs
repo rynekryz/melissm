@@ -7,6 +7,7 @@ mod mpris;
 mod theming;
 
 use audio::{Cmd, Player};
+use gstreamer::prelude::*;
 use innertube::{Track, Yt};
 use lyrics::Lyrics;
 use serde::Serialize;
@@ -78,15 +79,42 @@ async fn album(state: State<'_, AppState>, id: String) -> Result<Vec<Track>, Str
 }
 
 #[tauri::command]
-async fn play(state: State<'_, AppState>, id: String) -> Result<f64, String> {
+async fn play(state: State<'_, AppState>, id: String, quality: Option<String>) -> Result<f64, String> {
     let generation = state.player.generation.fetch_add(1, Ordering::SeqCst) + 1;
     state.player.send(Cmd::Stop);
-    let (url, duration, ua) = state.yt.resolve_stream(&id).await?;
+    let (url, duration, ua) = state.yt.resolve_stream(&id, quality.as_deref().unwrap_or("max")).await?;
     if state.player.generation.load(Ordering::SeqCst) != generation {
         return Err("superseded".into());
     }
     state.player.send(Cmd::Load { url, duration, ua: ua.to_string() });
     Ok(duration)
+}
+
+#[tauri::command]
+async fn radio(state: State<'_, AppState>, id: String) -> Result<Vec<Track>, String> {
+    state.yt.radio(&id).await
+}
+
+#[tauri::command]
+fn set_speed(state: State<'_, AppState>, value: f64) {
+    if let Some(f) = &state.player.filter {
+        f.pitch.set_property("tempo", value.clamp(0.5, 2.0));
+    }
+}
+
+#[tauri::command]
+fn set_pitch(state: State<'_, AppState>, value: f64) {
+    if let Some(f) = &state.player.filter {
+        f.pitch.set_property("pitch", value.clamp(0.25, 4.0));
+    }
+}
+
+#[tauri::command]
+fn set_eq(state: State<'_, AppState>, band: u32, gain: f64) {
+    if let Some(f) = &state.player.filter {
+        f.eq
+            .set_property(format!("band{band}").as_str(), gain.clamp(-24.0, 12.0));
+    }
 }
 
 #[tauri::command]
@@ -228,8 +256,8 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            search, home, album, play, pause, resume, seek, volume, lyrics, set_theme,
-            system_scale, sync_player_state
+            search, home, album, play, radio, pause, resume, seek, volume, lyrics, set_theme,
+            set_speed, set_pitch, set_eq, system_scale, sync_player_state
         ])
         .run(tauri::generate_context!())
         .expect("failed to run melissm");

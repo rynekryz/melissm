@@ -10,6 +10,7 @@ export const initSliders = () => {
       const ratio = (+input.value - min) / (max - min || 1);
       el.style.setProperty('--p', `${ratio * 100}%`);
       el.style.setProperty('--p-num', String(ratio));
+      el.dataset.at = ratio <= 0.001 ? 'start' : ratio >= 0.999 ? 'end' : 'mid';
     };
     input.addEventListener('input', paint);
     el.addEventListener('pointerdown', () => el.classList.add('dragging'));

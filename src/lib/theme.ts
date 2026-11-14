@@ -65,6 +65,17 @@ export async function applyScale(opts: ThemeOpts) {
   document.documentElement.style.zoom = String(Math.min(1.25, Math.max(0.5, factor)));
 }
 
+let scaleTimer: ReturnType<typeof setTimeout> | undefined;
+export function applyScaleSoon(opts: ThemeOpts) {
+  const root = document.documentElement;
+  root.classList.add('zooming');
+  clearTimeout(scaleTimer);
+  scaleTimer = setTimeout(() => {
+    void applyScale(opts);
+    scaleTimer = setTimeout(() => root.classList.remove('zooming'), 420);
+  }, 240);
+}
+
 let lastApplied = '';
 let lastPalette: { colors: Record<string, string>; mode: ThemeMode } | null = null;
 

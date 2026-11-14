@@ -15,3 +15,7 @@ export const lyrics = (t: Track) =>
 export const setTheme = (theme: { mode: ThemeMode; scheme: string; source: ThemeSource }) =>
   invoke<Record<string, string>>('set_theme', { theme });
 export const systemScale = () => invoke<number>('system_scale');
+export const radio = (id: string) => invoke<Track[]>('radio', { id });
+export const setSpeed = (value: number) => invoke('set_speed', { value });
+export const setPitch = (value: number) => invoke('set_pitch', { value });
+export const setEq = (band: number, gain: number) => invoke('set_eq', { band, gain });

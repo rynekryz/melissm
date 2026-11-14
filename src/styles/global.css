@@ -61,6 +61,8 @@
 }
 :root[data-mode="light"] { color-scheme: light; }
 
+html { transition: filter 0.45s var(--spring), opacity 0.45s var(--spring); }
+html.zooming { filter: blur(14px) saturate(1.2); opacity: 0.55; }
 html, body { height: 100%; }
 body { font-family: var(--font-sans); background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface); transition: background-color 0.8s, color 0.8s; cursor: default; }
 *, *::before, *::after { -webkit-user-select: none; user-select: none; }
@@ -92,11 +94,19 @@ img { -webkit-user-drag: none; user-drag: none; }
 .no-blur #player { background: var(--md-sys-color-surface-container-high); }
 .no-blur #lyrics-panel { background: var(--md-sys-color-surface-container-high); }
 
-.glass { background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent), color-mix(in srgb, var(--md-sys-color-surface-container) 92%, transparent); backdrop-filter: blur(20px) saturate(1.2); -webkit-backdrop-filter: blur(20px) saturate(1.2); }
-.lyrics-glass { background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent), color-mix(in srgb, var(--md-sys-color-surface-container) 90%, transparent); backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2); }
+.glass { background: color-mix(in srgb, var(--md-sys-color-primary-container) 14%, color-mix(in srgb, var(--md-sys-color-surface-container) 88%, transparent)); backdrop-filter: blur(44px) saturate(1.7); -webkit-backdrop-filter: blur(44px) saturate(1.7); }
+.lyrics-glass { background: color-mix(in srgb, var(--md-sys-color-primary-container) 14%, color-mix(in srgb, var(--md-sys-color-surface-container) 86%, transparent)); backdrop-filter: blur(48px) saturate(1.7); -webkit-backdrop-filter: blur(48px) saturate(1.7); }
 .lyrics-mask { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent); }
 #player.empty { opacity: 0.85; }
 #player.empty:hover { opacity: 1; }
+
+#p-full { position: fixed; inset: 0; z-index: 40; overflow: hidden; visibility: hidden; opacity: 0; pointer-events: none; transition: opacity 0.4s, visibility 0.4s; }
+#p-full .scrim { background: color-mix(in srgb, var(--md-sys-color-surface-container-lowest) 55%, transparent); transition: background-color 0.7s; }
+#p-full .fp-pop { transform: translateY(72px) scale(0.97); opacity: 0; transition: transform 0.55s var(--spring), opacity 0.4s; }
+#p-full .fp-art { border-radius: 24px; transition: opacity 0.55s, transform 0.6s var(--spring), border-radius 0.5s var(--spring); opacity: 0; }
+#p-full.open { visibility: visible; opacity: 1; pointer-events: auto; }
+#p-full.open .fp-pop { transform: none; opacity: 1; }
+#p-full.open .fp-art { border-radius: 32px; }
 
 .ms { font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal; font-size: 24px; line-height: 1; display: inline-block; white-space: nowrap; font-variation-settings: "FILL" 0, "wght" 400; user-select: none; }
 .ms.fill { font-variation-settings: "FILL" 1, "wght" 400; }
@@ -118,11 +128,14 @@ img { -webkit-user-drag: none; user-drag: none; }
 
 .xslider { position: relative; height: 44px; min-width: 128px; display: flex; align-items: center; cursor: pointer; --p: 0%; }
 .xslider input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: inherit; margin: 0; z-index: 1; }
-.xslider .xtrack { position: absolute; inset: 0 12px; top: 50%; height: 16px; transform: translateY(-50%); border-radius: 8px; background: var(--md-sys-color-surface-container-highest); -webkit-mask: linear-gradient(to right, transparent var(--p), black var(--p)); mask: linear-gradient(to right, transparent var(--p), black var(--p)); }
-.xslider .xfill { position: absolute; left: 12px; right: 12px; top: 50%; height: 16px; transform: translateY(-50%); border-radius: 8px; background: var(--md-sys-color-primary); width: auto; clip-path: inset(0 calc(100% - var(--p)) 0 0); }
+.xslider .xtrack { position: absolute; inset: 0 12px; top: 50%; height: 16px; transform: translateY(-50%); border-radius: 8px; background: var(--md-sys-color-surface-container-highest); -webkit-mask: linear-gradient(to right, transparent var(--p), black var(--p)); mask: linear-gradient(to right, transparent var(--p), black var(--p)); transition: border-radius 0.4s var(--spring); }
+.xslider .xfill { position: absolute; left: 12px; right: 12px; top: 50%; height: 16px; transform: translateY(-50%); border-radius: 8px; background: var(--md-sys-color-primary); width: auto; clip-path: inset(0 calc(100% - var(--p)) 0 0); transition: border-radius 0.4s var(--spring); }
+.xslider[data-at="start"] .xfill { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.xslider[data-at="end"] .xfill { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.xslider[data-at="end"] .xtrack { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .xslider.dragging .xfill { -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2720%27 height=%2716%27 viewBox=%270 0 20 16%27%3E%3Cpath d=%27M0 8Q5 2 10 8T20 8%27 fill=%27none%27 stroke=%27black%27 stroke-width=%273%27 stroke-linecap=%27round%27/%3E%3C/svg%3E") repeat-x 0 50% / 20px 16px; mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2720%27 height=%2716%27 viewBox=%270 0 20 16%27%3E%3Cpath d=%27M0 8Q5 2 10 8T20 8%27 fill=%27none%27 stroke=%27black%27 stroke-width=%273%27 stroke-linecap=%27round%27/%3E%3C/svg%3E") repeat-x 0 50% / 20px 16px; animation: wave 0.9s linear infinite; }
-.xslider .xhandle { position: absolute; top: 50%; left: calc(12px + (100% - 24px) * var(--p-num, 0)); width: 5px; height: 44px; border-radius: 999px; background: var(--md-sys-color-primary); transform: translate(-50%, -50%); opacity: 0.75; transition: opacity 0.2s; }
-.xslider:hover .xhandle, .xslider.dragging .xhandle, .xslider input:focus-visible ~ .xhandle { opacity: 1; }
+.xslider .xhandle { position: absolute; top: 50%; left: calc(12px + (100% - 24px) * var(--p-num, 0)); width: 5px; height: 44px; border-radius: 999px; background: var(--md-sys-color-primary); transform: translate(-50%, -50%); transition: height 0.3s var(--spring); }
+.xslider:hover .xhandle, .xslider.dragging .xhandle, .xslider input:focus-visible ~ .xhandle { height: 48px; }
 
 #p-seek { --p: 0%; }
 #p-seek-track { background: var(--md-sys-color-surface-container-highest); -webkit-mask: linear-gradient(to right, transparent var(--p), black var(--p)); mask: linear-gradient(to right, transparent var(--p), black var(--p)); }
