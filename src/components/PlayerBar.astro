@@ -45,13 +45,15 @@
   </div>
 </div>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><clipPath id="fp-shape" clipPathUnits="objectBoundingBox"><path id="fp-shape-path" /></clipPath></defs></svg>
+
 <div id="p-full" aria-hidden="true">
-  <img id="fp-bg" alt="" class="absolute inset-0 size-full scale-125 object-cover opacity-0 blur-[64px]" />
+  <img id="fp-bg" alt="" class="absolute inset-0 size-full scale-125 object-cover blur-[64px]" style="opacity:0" />
   <div class="absolute inset-0 scrim"></div>
   <button id="fp-close" class="press absolute left-8 top-8 z-20 grid size-14 place-items-center rounded-full bg-surface-container/90 text-on-surface shadow-lg shadow-black/30 hover:bg-surface-container-highest" aria-label="Close player"><span class="ms">expand_more</span></button>
-  <div class="fp-pop relative z-10 grid h-full w-full max-w-[1400px] grid-cols-[minmax(0,42%)_minmax(0,58%)] items-center gap-16 px-24 py-10">
-    <div class="relative mx-auto aspect-square h-auto max-h-[68vh] w-[min(40vw,68vh)]">
-      <div class="fp-art absolute inset-0 grid place-items-center bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60" style="font-size:64px">music_note</span></div>
+  <div class="fp-pop relative z-10 mx-auto grid h-full w-full max-w-[1400px] grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] items-center gap-16 px-24 py-10">
+    <div class="relative mx-auto aspect-square w-full max-w-[min(40vw,68vh)]">
+      <div id="fp-art-base" class="absolute inset-0 grid place-items-center bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60" style="font-size:64px">music_note</span></div>
       <img id="fp-art-a" alt="" class="fp-art absolute inset-0 size-full object-cover" />
       <img id="fp-art-b" alt="" class="fp-art absolute inset-0 size-full object-cover" />
     </div>
@@ -121,14 +123,29 @@
     }
     return d + 'Z';
   };
-  const SHAPES = [
-    polar((a) => 0.85 + 0.15 * Math.cos(12 * a)),
-    polar((a) => 0.7 + 0.3 * Math.abs(Math.cos(6 * a)) ** 0.75),
-    polar((a) => 0.78 + 0.22 * Math.cos(8 * a)),
-    polar((a) => 0.8 + 0.2 * Math.cos(4 * a)),
-    polar((a) => 0.9 + 0.1 * Math.cos(2 * a)),
-    polar((a) => 0.68 + 0.32 * Math.abs(Math.cos(5 * a)) ** 0.85),
+  const FNS = [
+    (a: number) => 0.85 + 0.15 * Math.cos(12 * a),
+    (a: number) => 0.7 + 0.3 * Math.abs(Math.cos(6 * a)) ** 0.75,
+    (a: number) => 0.78 + 0.22 * Math.cos(8 * a),
+    (a: number) => 0.8 + 0.2 * Math.cos(4 * a),
+    (a: number) => 0.9 + 0.1 * Math.cos(2 * a),
+    (a: number) => 0.68 + 0.32 * Math.abs(Math.cos(5 * a)) ** 0.85,
   ];
+  const clipEl = $('fp-shape-path');
+  let curFn = FNS[0];
+  clipEl.setAttribute('d', polar(curFn));
+  const morphTo = (fn: (a: number) => number) => {
+    const from = curFn;
+    curFn = fn;
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / 650);
+      const e = 1 - Math.pow(1 - k, 3);
+      clipEl.setAttribute('d', polar((a) => from(a) + (fn(a) - from(a)) * e));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
   let front = 'a';
   let songCount = 0;
   let lastTrackId = '';
@@ -205,7 +222,7 @@
       return;
     }
     back.src = src;
-    back.style.clipPath = `path('${SHAPES[songCount % SHAPES.length]}')`;
+    morphTo(FNS[songCount % FNS.length]);
     back.style.transform = 'rotate(14deg) scale(1.15)';
     requestAnimationFrame(() => {
       back.style.opacity = '1';
@@ -289,7 +306,9 @@
         lastTrackId = t.id;
         $('fp-title').textContent = t.title;
         $('fp-artist').textContent = t.artist || t.album || 'Unknown artist';
-        $('fp-bg').src = t.thumbnail || '';
+        const bg = $<HTMLImageElement>('fp-bg');
+        if (bg.getAttribute('src') !== (t.thumbnail || '')) bg.src = t.thumbnail || '';
+        bg.style.opacity = t.thumbnail ? '1' : '0';
         setArt(t.thumbnail);
       }
     } else {

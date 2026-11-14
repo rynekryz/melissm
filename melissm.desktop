@@ -6,4 +6,4 @@ Exec=melissm
 Icon=melissm
 Terminal=false
 Categories=Audio;Music;Player;AudioVideo;
-StartupWMClass=dev.ryne.melissm
+StartupWMClass=melissm
