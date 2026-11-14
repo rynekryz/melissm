@@ -24,7 +24,11 @@ const path = Astro.url.pathname;
     <div transition:persist="player-root"><PlayerBar /></div>
     <script>
       import { initTheme } from '../lib/theme';
+      import { initSliders, initSwipe } from '../lib/xui';
       initTheme();
+      initSliders();
+      initSwipe();
+      document.addEventListener('astro:page-load', () => initSliders());
     </script>
   </body>
 </html>

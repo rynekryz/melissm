@@ -33,7 +33,7 @@ export const loadOpts = (): ThemeOpts => {
       scheme: typeof raw.scheme === 'string' ? raw.scheme : 'tonal-spot',
       source: raw.source && typeof raw.source.color === 'string' ? { color: raw.source.color } : { wallpaper: null },
       blur: raw.blur !== false,
-      scale: typeof raw.scale === 'number' ? Math.min(1.4, Math.max(0.8, raw.scale)) : 'dynamic',
+      scale: typeof raw.scale === 'number' ? Math.min(1.25, Math.max(0.5, raw.scale)) : 'dynamic',
     };
   } catch {
     return { ...defaults };
@@ -60,9 +60,9 @@ export async function applyScale(opts: ThemeOpts) {
   let factor = typeof opts.scale === 'number' ? opts.scale : systemScaleCache;
   if (factor == null) {
     systemScaleCache = isTauri ? await systemScale().catch(() => 1) : 1;
-    factor = opts.scale === 'dynamic' ? systemScaleCache : opts.scale;
   }
-  document.documentElement.style.zoom = String(Math.min(1.4, Math.max(0.8, factor)));
+  factor = typeof opts.scale === 'number' ? opts.scale : systemScaleCache! * 0.9;
+  document.documentElement.style.zoom = String(Math.min(1.25, Math.max(0.5, factor)));
 }
 
 let lastApplied = '';

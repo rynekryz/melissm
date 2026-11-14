@@ -26,7 +26,7 @@
     <button id="p-repeat" class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span class="ms">repeat</span></button>
     <span id="p-pos" class="w-10 text-right text-xs tabular-nums text-on-surface-variant">0:00</span>
     <div id="p-seek" class="relative h-4 flex-1 cursor-pointer">
-      <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-surface-container-highest"></div>
+      <div id="p-seek-track" class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full"></div>
       <div id="p-wave" class="wave absolute left-0 top-0 h-4" style="width:0%"></div>
     </div>
     <span id="p-dur" class="w-10 text-xs tabular-nums text-on-surface-variant">0:00</span>
@@ -35,7 +35,12 @@
   <div class="flex w-[20%] items-center justify-end gap-2">
     <button id="p-lyrics" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics"><span class="ms">lyrics</span></button>
     <span class="ms text-on-surface-variant">volume_up</span>
-    <input id="p-vol" type="range" min="0" max="100" class="w-24 accent-[var(--md-sys-color-primary)]" aria-label="Volume" />
+    <div class="xslider w-28 shrink-0">
+      <input id="p-vol" type="range" min="0" max="100" aria-label="Volume" />
+      <div class="xtrack"></div>
+      <div class="xfill"></div>
+      <div class="xhandle"></div>
+    </div>
   </div>
 </div>
 
@@ -137,7 +142,9 @@
     $('p-pos').textContent = fmt(s.position);
     $('p-dur').textContent = fmt(s.duration);
     $('p-dur').dataset.s = String(s.duration);
-    $('p-wave').style.width = `${s.duration ? Math.min(100, (s.position / s.duration) * 100) : 0}%`;
+    const pct = `${s.duration ? Math.min(100, (s.position / s.duration) * 100) : 0}%`;
+    $('p-wave').style.width = pct;
+    $('p-seek').style.setProperty('--p', pct);
     if (has && !panel.classList.contains('translate-x-[115%]')) loadLyrics();
     if (lines.length) {
       const i = lines.findLastIndex((l) => l.t <= s.position + 0.15);
