@@ -206,6 +206,12 @@ fn system_scale() -> f64 {
     1.0
 }
 
+#[tauri::command]
+fn toggle_fullscreen(window: tauri::WebviewWindow) {
+    let fs = window.is_fullscreen().unwrap_or(false);
+    let _ = window.set_fullscreen(!fs);
+}
+
 fn main() {
     let opts: SharedOpts = std::sync::Arc::new(std::sync::Mutex::new(ThemeOpts::default()));
     tauri::Builder::default()
@@ -257,7 +263,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             search, home, album, play, radio, pause, resume, seek, volume, lyrics, set_theme,
-            set_speed, set_pitch, set_eq, system_scale, sync_player_state
+            set_speed, set_pitch, set_eq, system_scale, sync_player_state, toggle_fullscreen
         ])
         .run(tauri::generate_context!())
         .expect("failed to run melissm");

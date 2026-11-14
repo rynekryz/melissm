@@ -23,12 +23,25 @@ const path = Astro.url.pathname;
     </div>
     <div transition:persist="player-root"><PlayerBar /></div>
     <script>
+      import { invoke } from '@tauri-apps/api/core';
+      import { isTauri } from '../lib/api';
       import { initTheme } from '../lib/theme';
       import { initSliders, initSwipe } from '../lib/xui';
       initTheme();
       initSliders();
       initSwipe();
       document.addEventListener('astro:page-load', () => initSliders());
+      document.addEventListener('gesturestart', (e) => e.preventDefault());
+      window.addEventListener('wheel', (e) => {
+        if (e.ctrlKey) e.preventDefault();
+      }, { passive: false });
+      window.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && ['+', '-', '=', '0'].includes(e.key)) e.preventDefault();
+        if (e.key === 'F11') {
+          e.preventDefault();
+          if (isTauri) void invoke('toggle_fullscreen').catch(() => {});
+        }
+      });
     </script>
   </body>
 </html>

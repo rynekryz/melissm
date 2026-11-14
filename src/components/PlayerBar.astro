@@ -214,13 +214,16 @@
   const setArt = (src: string) => {
     const a = $<HTMLImageElement>('fp-art-a');
     const b = $<HTMLImageElement>('fp-art-b');
+    const base = $('fp-art-base');
     const back = front === 'a' ? b : a;
     const frontEl = front === 'a' ? a : b;
     if (!src) {
       a.style.opacity = '0';
       b.style.opacity = '0';
+      base.style.opacity = '1';
       return;
     }
+    base.style.opacity = '0';
     back.src = src;
     morphTo(FNS[songCount % FNS.length]);
     back.style.transform = 'rotate(14deg) scale(1.15)';
@@ -277,14 +280,20 @@
   };
   fpSeekInput.addEventListener('input', () => {
     const ratio = +fpSeekInput.value / 1000;
-    fpSeek.style.setProperty('--p', `${ratio * 100}%`);
-    fpSeek.style.setProperty('--p-num', String(ratio));
+    paintSlider(fpSeek, 1000, +fpSeekInput.value);
     $('fp-pos').textContent = fmt(ratio * Number($('fp-dur').dataset.s || '0'));
   });
   fpSeekInput.addEventListener('change', () => {
     const dur = Number($('fp-dur').dataset.s || '0');
     if (dur) seek((+fpSeekInput.value / 1000) * dur);
   });
+
+  const paintSlider = (el: HTMLElement, max: number, val: number) => {
+    const ratio = Math.min(1, Math.max(0, val / max));
+    el.style.setProperty('--p', `${ratio * 100}%`);
+    el.style.setProperty('--p-num', String(ratio));
+    el.dataset.at = ratio <= 0.001 ? 'start' : ratio >= 0.999 ? 'end' : 'mid';
+  };
 
   subscribe((s) => {
     const t = s.queue[s.index];
@@ -334,13 +343,16 @@
     $('p-wave').style.width = pct;
     $('p-seek').style.setProperty('--p', pct);
     if (!fpSeek.classList.contains('dragging')) {
-      fpSeekInput.value = String(Math.round(s.duration ? (s.position / s.duration) * 1000 : 0));
-      fpSeek.style.setProperty('--p', pct);
-      fpSeek.style.setProperty('--p-num', String(s.duration ? Math.min(1, s.position / s.duration) : 0));
+      const ratio = s.duration ? Math.min(1, s.position / s.duration) : 0;
+      fpSeekInput.value = String(Math.round(ratio * 1000));
+      paintSlider(fpSeek, 1000, ratio * 1000);
       $('fp-pos').textContent = fmt(s.position);
       $('fp-dur').textContent = fmt(s.duration);
     }
-    if (!fpVol.classList.contains('dragging')) fpVolInput.value = vol.value;
+    if (!fpVol.classList.contains('dragging')) {
+      fpVolInput.value = vol.value;
+      paintSlider(fpVol, 100, +vol.value);
+    }
     syncFpControls(s.playing, s.shuffle, s.repeat);
     if (has && !panel.classList.contains('translate-x-[115%]')) loadLyrics();
     if (lines.length) {

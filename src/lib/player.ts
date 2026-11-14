@@ -164,8 +164,12 @@ export async function toggle() {
   await invoke(state.playing ? 'pause' : 'resume');
 }
 
+let seekHold = 0;
+let seekTarget = 0;
 export async function seek(seconds: number) {
   state.position = seconds;
+  seekTarget = seconds;
+  seekHold = Date.now();
   emit();
   await invoke('seek', { seconds });
 }
@@ -184,7 +188,12 @@ if (isTauri) {
   listen<{ playing: boolean; position: number; duration: number }>('player-state', (e) => {
     if (state.loading) return;
     state.playing = e.payload.playing;
-    state.position = e.payload.position;
+    if (seekHold && Date.now() - seekHold < 700 && Math.abs(e.payload.position - seekTarget) > 1.2) {
+      state.position = seekTarget;
+    } else {
+      seekHold = 0;
+      state.position = e.payload.position;
+    }
     state.duration = e.payload.duration || state.duration;
     emit();
   });
