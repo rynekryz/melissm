@@ -2,7 +2,7 @@
 <img src="icons/icon.png" width="160" height="160" style="display: block; margin: 0 auto"/>
 <h1>Melissm</h1>
 <p>It plays music, literally. what else would it do</p>
-<p>A music streaming app for Arch Linux. Astro + Tauri v2 (Rust), GStreamer playback, Material 3 Expressive UI themed live from your wallpaper via Matugen (falls back to Caelestia's scheme).</p>
+<p>A music streaming app for Arch Linux. Astro + Tauri v2 (Rust), GStreamer playback, Material 3 Expressive UI themed live from your wallpaper via Matugen.</p>
 </div>
 <p align="center">
   <a href="https://github.com/rynekryz/melissm/stargazers"><img src="assets/badges/stars.svg" alt="GitHub stars" height="30"/></a>
