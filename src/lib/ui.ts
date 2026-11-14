@@ -18,7 +18,7 @@ const markActive = () => {
 };
 subscribe(markActive);
 
-export function renderTracks(el: HTMLElement, tracks: Track[], onUnlike?: () => void) {
+export function renderTracks(el: HTMLElement, tracks: Track[], onUnlike?: () => void, onRemove?: (t: Track) => void) {
   if (!tracks.length) {
     el.innerHTML = '<p class="px-2 py-6 text-on-surface-variant">Nothing here yet.</p>';
     return;
@@ -30,6 +30,7 @@ export function renderTracks(el: HTMLElement, tracks: Track[], onUnlike?: () => 
         <div class="min-w-0 flex-1"><div class="truncate font-medium">${esc(t.title)}</div><div class="truncate text-sm opacity-70">${esc(t.artist)}${t.album && !t.is_album ? ' • ' + esc(t.album) : ''}</div></div>
         <button data-like class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest"><span class="ms ${isLiked(t.id) ? 'fill text-primary' : ''}">favorite</span></button>
         <span class="w-12 text-right text-sm opacity-70">${t.duration ? fmt(t.duration) : ''}</span>
+        ${onRemove ? '<button data-remove class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Remove"><span class="ms text-on-surface-variant">delete</span></button>' : ''}
       </div>`,
     )
     .join('');
@@ -39,6 +40,11 @@ export function renderTracks(el: HTMLElement, tracks: Track[], onUnlike?: () => 
     if (!row) return;
     const track = tracks[+row.dataset.i!];
     const like = target.closest('[data-like]');
+    const remove = target.closest('[data-remove]');
+    if (remove) {
+      onRemove?.(track);
+      return;
+    }
     if (!like) return void playQueue(tracks, +row.dataset.i!);
     const liked = toggleLike(track);
     like.firstElementChild!.className = `ms ${liked ? 'fill text-primary' : ''}`;

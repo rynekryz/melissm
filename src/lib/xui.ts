@@ -30,14 +30,20 @@ export const initSwipe = () => {
 
   const glide = () => {
     if (!row) return;
-    vel *= 0.94;
+    vel *= 0.82;
     row.scrollLeft -= vel;
-    if (Math.abs(vel) > 0.4) {
+    if (Math.abs(vel) > 1) {
       raf = requestAnimationFrame(glide);
     } else {
       row?.classList.remove('gliding');
       row = null;
     }
+  };
+
+  const drop = () => {
+    if (row) row.classList.remove('dragging', 'gliding');
+    row = null;
+    cancelAnimationFrame(raf);
   };
 
   document.addEventListener(
@@ -61,6 +67,10 @@ export const initSwipe = () => {
     'pointermove',
     (e) => {
       if (!row) return;
+      if (!(e.buttons & 1)) {
+        drop();
+        return;
+      }
       const dx = e.clientX - startX;
       if (Math.abs(dx) > 6) {
         moved = true;
@@ -84,7 +94,7 @@ export const initSwipe = () => {
       const el = row;
       row = null;
       el.classList.remove('dragging');
-      if (moved && Math.abs(vel) > 2) {
+      if (moved && Math.abs(vel) > 3) {
         el.classList.add('gliding');
         row = el;
         raf = requestAnimationFrame(glide);
@@ -92,6 +102,8 @@ export const initSwipe = () => {
     },
     { passive: true },
   );
+  window.addEventListener('pointercancel', drop, { passive: true });
+  window.addEventListener('blur', drop, { passive: true });
   document.addEventListener(
     'click',
     (e) => {

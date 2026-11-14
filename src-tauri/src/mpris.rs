@@ -157,6 +157,7 @@ pub fn start(app: AppHandle) {
 pub fn update_track(title: String, artist: String, album: String, art: String) {
     let old = get();
     let changed = old.title != title;
+    let was_playing = old.playing;
     if !set(|d| {
         if changed {
             d.track += 1;
@@ -179,11 +180,15 @@ pub fn update_track(title: String, artist: String, album: String, art: String) {
         }
         notify(vec!["Metadata"]);
     }
+    if !get().playing && was_playing {
+        notify(vec!["PlaybackStatus"]);
+    }
 }
 
 pub fn update_status(playing: bool, position: f64, duration: f64) {
     let old_pos = get().current_position();
     let jump = (position - old_pos).abs() > 1.5;
+    let was = get().playing;
     if !set(|d| {
         d.playing = playing;
         d.duration = duration;
@@ -192,7 +197,7 @@ pub fn update_status(playing: bool, position: f64, duration: f64) {
     }) {
         return;
     }
-    if get().playing != playing {
+    if was != playing {
         notify(vec!["PlaybackStatus"]);
     }
     if jump {

@@ -29,6 +29,10 @@ export function pushRecent(track: Track) {
   localStorage.setItem(RECENT, JSON.stringify([track, ...rest].slice(0, 50)));
 }
 
+export function removeRecent(id: string) {
+  localStorage.setItem(RECENT, JSON.stringify(read(RECENT).filter((t) => t.id !== id)));
+}
+
 export function clearLikes() {
   localStorage.removeItem(LIKES);
 }

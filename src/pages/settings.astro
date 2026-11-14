@@ -124,8 +124,6 @@ import Layout from '../layouts/Layout.astro';
       blurToggle.dataset.on = String(opts.blur);
       scaleDynamic.classList.toggle('on', opts.scale === 'dynamic');
       const manual = typeof opts.scale === 'number' ? Math.round(opts.scale * 100) : dyn;
-      scaleSlider.classList.toggle('opacity-40', opts.scale === 'dynamic');
-      scaleSlider.classList.toggle('pointer-events-none', opts.scale === 'dynamic');
       scaleInput.value = String(manual);
       scaleSlider.style.setProperty('--p', `${((manual - 50) / 75) * 100}%`);
       scaleSlider.style.setProperty('--p-num', String((manual - 50) / 75));

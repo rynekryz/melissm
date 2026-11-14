@@ -9,13 +9,16 @@ import Layout from '../layouts/Layout.astro';
   <div id="history-list" class="space-y-1"></div>
 </Layout>
 <script>
-  import { clearRecent, recent } from '../lib/library';
+  import { clearRecent, recent, removeRecent } from '../lib/library';
   import { renderTracks } from '../lib/ui';
 
   document.addEventListener('astro:page-load', () => {
     const list = document.getElementById('history-list');
     if (!list) return;
-    const draw = () => renderTracks(list, recent(), draw);
+    const draw = () => renderTracks(list, recent(), undefined, (t) => {
+      removeRecent(t.id);
+      draw();
+    });
     document.getElementById('clear-history')!.addEventListener('click', () => {
       clearRecent();
       draw();

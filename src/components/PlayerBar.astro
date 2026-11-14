@@ -16,6 +16,7 @@
       <div id="p-title" class="truncate font-medium">Nothing playing</div>
       <div id="p-artist" class="truncate text-sm text-on-surface-variant">Pick a song you like</div>
     </div>
+    <button id="p-like" class="press grid size-10 shrink-0 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Like"><span id="p-like-icon" class="ms">favorite</span></button>
   </div>
 
   <div class="flex flex-1 items-center gap-4">
@@ -46,6 +47,7 @@
 
 <script>
   import { current, cycleRepeat, next, onError, previous, seek, setVolume, subscribe, toggle, toggleShuffle } from '../lib/player';
+  import { isLiked, toggleLike } from '../lib/library';
   import { lyrics } from '../lib/api';
   import { esc, fmt } from '../lib/ui';
 
@@ -103,6 +105,12 @@
   $('p-prev').onclick = previous;
   $('p-shuffle').onclick = toggleShuffle;
   $('p-repeat').onclick = cycleRepeat;
+  $('p-like').onclick = () => {
+    const t = current();
+    if (!t) return;
+    toggleLike(t);
+    $('p-like-icon').className = `ms ${isLiked(t.id) ? 'fill text-primary' : ''}`;
+  };
   vol.oninput = (e) => setVolume(+(e.target as HTMLInputElement).value / 100);
   $('p-seek').onclick = (e) => {
     const r = $('p-seek').getBoundingClientRect();
@@ -124,12 +132,14 @@
       }
       $('p-title').textContent = t.title;
       $('p-artist').textContent = t.artist || t.album || 'Unknown artist';
+      $('p-like-icon').className = `ms ${isLiked(t.id) ? 'fill text-primary' : ''}`;
     } else {
       art.removeAttribute('src');
       art.style.display = 'none';
       artFallback.style.display = '';
       $('p-title').textContent = 'Nothing playing';
       $('p-artist').textContent = 'Pick a song you like';
+      $('p-like-icon').className = 'ms';
     }
     $('p-icon').textContent = s.loading ? 'hourglass_empty' : s.playing ? 'pause' : 'play_arrow';
     $('p-play').dataset.playing = String(s.playing);
