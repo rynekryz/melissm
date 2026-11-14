@@ -5,6 +5,13 @@
 <p>A music streaming app for Arch Linux. Astro + Tauri v2 (Rust), GStreamer playback, Material 3 Expressive UI themed live from your wallpaper via Matugen (falls back to Caelestia's scheme).</p>
 </div>
 
+## Screenshots
+
+<div align="center">
+<img src="/Screenshots/151240.png" width="49%" />
+<img src="/Screenshots/151036.png" width="49%" />
+</div>
+
 ## Installing
 
 ### Requirements
