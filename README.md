@@ -4,6 +4,14 @@
 <p>It plays music, literally. what else would it do</p>
 <p>A music streaming app for Arch Linux. Astro + Tauri v2 (Rust), GStreamer playback, Material 3 Expressive UI themed live from your wallpaper via Matugen (falls back to Caelestia's scheme).</p>
 </div>
+<p align="center">
+  <a href="https://github.com/rynekryz/melissm/stargazers"><img src="https://img.shields.io/github/stars/rynekryz/melissm?style=flat&logo=github&labelColor=5F5E5E&color=5F5E5E&logoColor=white&sort=semver" alt="GitHub stars" height="30"/></a>
+  <a href="https://github.com/rynekryz/melissm/tags"><img src="https://img.shields.io/github/v/tag/rynekryz/melissm?style=flat&logo=git&labelColor=5F5E5E&color=5F5E5E&logoColor=white&sort=semver" alt="Latest release" height="30"/></a>
+  <a href="LICENSE"><img src="assets/badges/licencegplv3.svg" alt="Licence GPLv3"/></a>
+  <img src="assets/badges/arch.svg" alt="Arch"/>
+  <img src="assets/badges/rust.svg" alt="Rust"/>
+  <img src="assets/badges/astro.svg" alt="Astro"/>
+</p>
 
 ## Screenshots
 
@@ -68,6 +76,6 @@ Licensed under GPL-3.0-or-later. See [LICENSE](LICENSE) for details.
 <strong>Made with ♥︎ by Ryne</strong>
 </div>
 <div align="center">
-  <a href="DISCORD_INVITE"><img src="https://img.shields.io/badge/Discord-5A5A5A?style=for-the-badge&logo=discord&logoColor=white"/></a>
-  <a href="https://tiktok.com/@rynekryz"><img src="https://img.shields.io/badge/TikTok-5A5A5A?style=for-the-badge&logo=tiktok&logoColor=white"/></a>
+  <a href="https://discord.gg/YKhWXXhKmC"><img src="assets/badges/discord.svg" alt="Discord"/></a>
+  <a href="https://tiktok.com/@rynekryz"><img src="assets/badges/tiktok.svg" alt="TikTok"/></a>
 </div>
