@@ -5,8 +5,8 @@
 <p>A music streaming app for Arch Linux. Astro + Tauri v2 (Rust), GStreamer playback, Material 3 Expressive UI themed live from your wallpaper via Matugen (falls back to Caelestia's scheme).</p>
 </div>
 <p align="center">
-  <a href="https://github.com/rynekryz/melissm/stargazers"><img src="https://img.shields.io/github/stars/rynekryz/melissm?style=flat&logo=github&labelColor=5F5E5E&color=5F5E5E&logoColor=white&sort=semver" alt="GitHub stars" height="30"/></a>
-  <a href="https://github.com/rynekryz/melissm/tags"><img src="https://img.shields.io/github/v/tag/rynekryz/melissm?style=flat&logo=git&labelColor=5F5E5E&color=5F5E5E&logoColor=white&sort=semver" alt="Latest release" height="30"/></a>
+  <a href="https://github.com/rynekryz/melissm/stargazers"><img src="assets/badges/stars.svg" alt="GitHub stars" height="30"/></a>
+  <a href="https://github.com/rynekryz/melissm/tags"><img src="assets/badges/release.svg" alt="Latest release" height="30"/></a>
   <a href="LICENSE"><img src="assets/badges/licencegplv3.svg" alt="Licence GPLv3"/></a>
   <img src="assets/badges/arch.svg" alt="Arch"/>
   <img src="assets/badges/rust.svg" alt="Rust"/>
