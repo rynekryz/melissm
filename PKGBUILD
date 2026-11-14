@@ -1,6 +1,6 @@
 # Maintainer: Ryne
 pkgname=melissm
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=1
 pkgdesc="It plays music, literally. what else would it do"
 arch=('x86_64')
