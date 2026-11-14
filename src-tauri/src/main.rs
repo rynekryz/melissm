@@ -98,14 +98,14 @@ async fn radio(state: State<'_, AppState>, id: String) -> Result<Vec<Track>, Str
 #[tauri::command]
 fn set_speed(state: State<'_, AppState>, value: f64) {
     if let Some(f) = &state.player.filter {
-        f.pitch.set_property("tempo", value.clamp(0.5, 2.0));
+        f.pitch.set_property("tempo", value.clamp(0.5, 2.0) as f32);
     }
 }
 
 #[tauri::command]
 fn set_pitch(state: State<'_, AppState>, value: f64) {
     if let Some(f) = &state.player.filter {
-        f.pitch.set_property("pitch", value.clamp(0.25, 4.0));
+        f.pitch.set_property("pitch", value.clamp(0.25, 4.0) as f32);
     }
 }
 
