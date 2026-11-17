@@ -1,7 +1,7 @@
 # Maintainer: Ryne
 pkgname=melissm
 pkgver=0.3.1
-pkgrel=5
+pkgrel=6
 pkgdesc="It plays music, literally. what else would it do"
 arch=('x86_64')
 url="https://github.com/rynekryz/melissm"

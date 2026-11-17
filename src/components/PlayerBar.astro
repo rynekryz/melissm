@@ -145,6 +145,7 @@
   const lfBody = $('lf-body');
   const fplBody = $('fpl-body');
   const body = $('lyrics-body');
+  const viewport = $('lyrics-viewport');
   const art = $<HTMLImageElement>('p-art');
   const artFallback = $('p-art-fallback');
   const vol = $<HTMLInputElement>('p-vol');
@@ -429,6 +430,7 @@
     lyrFull.classList.add('open');
     lyrFull.setAttribute('aria-hidden', 'false');
     setPanel(false);
+    setQueue(false);
     loadLyrics();
   };
   const closeFsLyrics = () => {
@@ -616,9 +618,15 @@
           el.querySelector('.on')?.classList.remove('on');
           el.querySelector<HTMLElement>(`[data-l="${i}"]`)?.classList.add('on');
         }
-        body.querySelector<HTMLElement>(`[data-l="${i}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        if (fsOpen) lfBody.querySelector<HTMLElement>(`[data-l="${i}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        if (full.classList.contains('fp-lyr')) fplBody.querySelector<HTMLElement>(`[data-l="${i}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      const centerIn = (mask: HTMLElement, el: HTMLElement | null) => {
+        if (!el) return;
+        const m = mask.getBoundingClientRect();
+        const r = el.getBoundingClientRect();
+        mask.scrollTo({ top: mask.scrollTop + r.top - m.top - (m.height - r.height) / 2, behavior: 'smooth' });
+      };
+      centerIn(viewport, body.querySelector<HTMLElement>(`[data-l="${i}"]`));
+      if (fsOpen) centerIn(lfBody.parentElement as HTMLElement, lfBody.querySelector<HTMLElement>(`[data-l="${i}"]`));
+      if (full.classList.contains('fp-lyr')) centerIn(fplBody.parentElement as HTMLElement, fplBody.querySelector<HTMLElement>(`[data-l="${i}"]`));
         activeLine = i;
       }
       const line = lines[i];
