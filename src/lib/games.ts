@@ -50,6 +50,17 @@ function makeCtx(canvas: HTMLCanvasElement) {
   return { ctx, drawField, block, single };
 }
 
+const fitSquare = (canvas: HTMLCanvasElement) => {
+  const fit = () => {
+    const side = Math.max(260, Math.min(window.innerWidth * 0.42, window.innerHeight * 0.88 - 130, 880));
+    canvas.style.width = `${side}px`;
+    canvas.style.height = `${side}px`;
+  };
+  fit();
+  window.addEventListener('resize', fit);
+  return () => window.removeEventListener('resize', fit);
+};
+
 export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   const { ctx, drawField, block } = makeCtx(canvas);
   const COLS = Math.floor(canvas.width / CELL);
@@ -179,10 +190,12 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   canvas.addEventListener('click', onClick);
   document.addEventListener('keydown', onKey);
   document.addEventListener('visibilitychange', onVisible);
+  const stopFit = fitSquare(canvas);
   reset(true);
   raf = requestAnimationFrame(loop);
   return () => {
     cancelAnimationFrame(raf);
+    stopFit();
     canvas.removeEventListener('click', onClick);
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('visibilitychange', onVisible);
@@ -319,10 +332,12 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   document.addEventListener('keydown', onKey);
   document.addEventListener('keyup', onKeyUp);
   document.addEventListener('visibilitychange', onVisible);
+  const stopFit = fitSquare(canvas);
   reset(true);
   raf = requestAnimationFrame(loop);
   return () => {
     cancelAnimationFrame(raf);
+    stopFit();
     canvas.removeEventListener('click', onClick);
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('keyup', onKeyUp);

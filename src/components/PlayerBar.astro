@@ -122,6 +122,13 @@
   </div>
 </div>
 
+<div id="fp-lyr-wrap" aria-hidden="true">
+  <p id="fpl-title" class="mb-6 shrink-0 truncate text-2xl font-medium opacity-70">Nothing playing</p>
+  <div class="lyrics-mask min-h-0 flex-1 overflow-y-auto">
+    <div id="fpl-body" class="space-y-7 pb-24 pt-6 text-2xl font-medium leading-snug"></div>
+  </div>
+</div>
+
 <script>
   import { current, cycleRepeat, next, onError, previous, playAt, removeFromQueue, moveInQueue, clearUpcoming, seek, setVolume, subscribe, toggle, toggleShuffle, type PlayerState } from '../lib/player';
   import { isLiked, refreshHistory, toggleLike } from '../lib/library';
@@ -136,6 +143,7 @@
   const qList = $('queue-list');
   const lyrFull = $('lyr-full');
   const lfBody = $('lf-body');
+  const fplBody = $('fpl-body');
   const body = $('lyrics-body');
   const art = $<HTMLImageElement>('p-art');
   const artFallback = $('p-art-fallback');
@@ -318,6 +326,7 @@
     };
     render(body, false);
     render(lfBody, true);
+    render(fplBody, false);
     activeLine = -1;
   };
 
@@ -334,6 +343,9 @@
   };
   const closeFull = () => {
     full.classList.remove('open');
+    full.classList.remove('fp-lyr');
+    $('fp-lyr-wrap').setAttribute('aria-hidden', 'true');
+    $('fp-lyrics').querySelector('.ms')!.classList.remove('text-primary');
     full.setAttribute('aria-hidden', 'true');
   };
   bar.addEventListener('click', (e) => {
@@ -349,7 +361,11 @@
         return;
       }
       if (fsOpen) closeFsLyrics();
-      else if (full.classList.contains('open')) closeFull();
+      else if (full.classList.contains('fp-lyr')) {
+        full.classList.remove('fp-lyr');
+        $('fp-lyr-wrap').setAttribute('aria-hidden', 'true');
+        $('fp-lyrics').querySelector('.ms')!.classList.remove('text-primary');
+      } else if (full.classList.contains('open')) closeFull();
     }
   });
 
@@ -397,7 +413,17 @@
     if (open) loadLyrics();
   };
   $('p-lyrics').onclick = togglePanel;
-  $('fp-lyrics').onclick = togglePanel;
+  const toggleFpLyr = () => {
+    const on = full.classList.toggle('fp-lyr');
+    $('fp-lyr-wrap').setAttribute('aria-hidden', String(!on));
+    $('fp-lyrics').querySelector('.ms')!.classList.toggle('text-primary', on);
+    if (on) {
+      setPanel(false);
+      setQueue(false);
+      loadLyrics();
+    }
+  };
+  $('fp-lyrics').onclick = toggleFpLyr;
   const openFsLyrics = () => {
     fsOpen = true;
     lyrFull.classList.add('open');
@@ -427,8 +453,8 @@
     const existing = isCustom ? await lyricsGetCustom(track.id) : lastSynced;
     const back = document.createElement('div');
     back.id = 'ly-edit-back';
-    back.className = 'fixed inset-0 z-[80] grid place-items-center bg-black/60 p-6 backdrop-blur-sm';
-    back.innerHTML = `<div class="flex w-full max-w-xl flex-col rounded-[28px] bg-surface-container-high p-6 shadow-2xl shadow-black/50">
+    back.className = 'modal-back fixed inset-0 z-[80] grid place-items-center bg-black/50 p-6 backdrop-blur-lg';
+    back.innerHTML = `<div class="modal-card flex w-full max-w-xl flex-col rounded-[28px] bg-surface-container-high p-6 shadow-2xl shadow-black/50">
       <p class="mb-4 text-lg font-medium">Edit lyrics</p>
       <textarea id="ly-edit-text" spellcheck="false" placeholder="Plain text, or add [mm:ss.xx] for sync" class="h-72 w-full resize-none rounded-2xl bg-surface-container-highest p-4 text-sm leading-relaxed outline-none">${existing ? esc(existing) : ''}</textarea>
       <div class="mt-4 flex justify-end gap-2">
@@ -535,6 +561,7 @@
         $('fp-title').textContent = t.title;
         $('fp-artist').textContent = t.artist || t.album || 'Unknown artist';
         $('lf-title').textContent = t.title;
+        $('fpl-title').textContent = t.title;
         const bg = $<HTMLImageElement>('fp-bg');
         const lbg = $<HTMLImageElement>('lf-bg');
         if (bg.getAttribute('src') !== (t.thumbnail || '')) bg.src = t.thumbnail || '';
@@ -581,22 +608,29 @@
     }
     renderQueue(s);
     syncFpControls(s.playing, s.shuffle, s.repeat);
-    if (has && (fsOpen || !panel.classList.contains('translate-x-[115%]'))) loadLyrics();
+    if (has && (fsOpen || full.classList.contains('fp-lyr') || !panel.classList.contains('translate-x-[115%]'))) loadLyrics();
     if (lines.length) {
       const i = lines.findLastIndex((l) => l.t <= s.position + 0.15);
       if (i !== activeLine) {
-        for (const el of [body, lfBody]) {
+        for (const el of [body, lfBody, fplBody]) {
           el.querySelector('.on')?.classList.remove('on');
           el.querySelector<HTMLElement>(`[data-l="${i}"]`)?.classList.add('on');
         }
         body.querySelector<HTMLElement>(`[data-l="${i}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         if (fsOpen) lfBody.querySelector<HTMLElement>(`[data-l="${i}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        if (full.classList.contains('fp-lyr')) fplBody.querySelector<HTMLElement>(`[data-l="${i}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         activeLine = i;
       }
       const line = lines[i];
       if (line?.words && fsOpen) {
         lfBody.querySelectorAll<HTMLElement>(`.kw.on-word`).forEach((w) => w.classList.remove('on-word'));
         for (const w of lfBody.querySelectorAll<HTMLElement>(`[data-l="${i}"] .kw`)) {
+          if (+w.dataset.s! <= s.position + 0.15) w.classList.add('on-word');
+        }
+      }
+      if (line?.words && full.classList.contains('fp-lyr')) {
+        fplBody.querySelectorAll<HTMLElement>(`.kw.on-word`).forEach((w) => w.classList.remove('on-word'));
+        for (const w of fplBody.querySelectorAll<HTMLElement>(`[data-l="${i}"] .kw`)) {
           if (+w.dataset.s! <= s.position + 0.15) w.classList.add('on-word');
         }
       }
