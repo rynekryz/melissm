@@ -6,7 +6,7 @@ use std::{
     },
     time::Instant,
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use zbus::{
     connection::Builder,
     object_server::{InterfaceRef, SignalEmitter},
@@ -321,46 +321,42 @@ impl Player {
     async fn seeked(emitter: &SignalEmitter<'_>, position: i64) -> zbus::Result<()>;
 
     fn play(&self) -> zbus::fdo::Result<()> {
-        self.app.emit("tray-action", "play".to_string()).ok();
+        crate::native_action(&self.app, "play");
         Ok(())
     }
 
     fn pause(&self) -> zbus::fdo::Result<()> {
-        self.app.emit("tray-action", "pause".to_string()).ok();
+        crate::native_action(&self.app, "pause");
         Ok(())
     }
 
     fn play_pause(&self) -> zbus::fdo::Result<()> {
-        self.app.emit("tray-action", "play-pause".to_string()).ok();
+        crate::native_action(&self.app, "play-pause");
         Ok(())
     }
 
     fn stop(&self) -> zbus::fdo::Result<()> {
-        self.app.emit("tray-action", "pause".to_string()).ok();
+        crate::native_action(&self.app, "pause");
         Ok(())
     }
 
     fn next(&self) -> zbus::fdo::Result<()> {
-        self.app.emit("tray-action", "next".to_string()).ok();
+        crate::native_action(&self.app, "next");
         Ok(())
     }
 
     fn previous(&self) -> zbus::fdo::Result<()> {
-        self.app.emit("tray-action", "previous".to_string()).ok();
+        crate::native_action(&self.app, "previous");
         Ok(())
     }
 
     fn seek(&self, offset: i64) -> zbus::fdo::Result<()> {
-        self.app
-            .emit("tray-action", format!("seek:{}", offset as f64 / 1_000_000.0))
-            .ok();
+        crate::native_action(&self.app, &format!("seek:{}", offset as f64 / 1_000_000.0));
         Ok(())
     }
 
     fn set_position(&self, _trackid: ObjectPath<'_>, position: i64) -> zbus::fdo::Result<()> {
-        self.app
-            .emit("tray-action", format!("seek:{}", position as f64 / 1_000_000.0))
-            .ok();
+        crate::native_action(&self.app, &format!("seek:{}", position as f64 / 1_000_000.0));
         Ok(())
     }
 
@@ -388,7 +384,7 @@ impl Player {
     #[zbus(property)]
     fn set_loop_status(&mut self, value: String) {
         if value != get().loop_status() {
-            self.app.emit("tray-action", "repeat".to_string()).ok();
+            crate::native_action(&self.app, "repeat");
         }
     }
 
@@ -415,7 +411,7 @@ impl Player {
     #[zbus(property)]
     fn set_shuffle(&mut self, value: bool) {
         if value != get().shuffle {
-            self.app.emit("tray-action", "shuffle".to_string()).ok();
+            crate::native_action(&self.app, "shuffle");
         }
     }
 
@@ -431,7 +427,7 @@ impl Player {
 
     #[zbus(property)]
     fn set_volume(&mut self, value: f64) {
-        self.app.emit("tray-action", format!("volume:{value}")).ok();
+        crate::native_action(&self.app, &format!("volume:{value}"));
     }
 
     #[zbus(property)]

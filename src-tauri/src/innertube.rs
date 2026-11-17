@@ -1,5 +1,5 @@
 use reqwest::{header, Client};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const BASE: &str = "https://music.youtube.com/youtubei/v1";
@@ -8,7 +8,7 @@ const VISIONOS_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleW
 const IOS_UA: &str = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";
 const SONGS_FILTER: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA==";
 
-#[derive(Serialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Track {
     pub id: String,
     pub title: String,
@@ -19,12 +19,35 @@ pub struct Track {
     pub thumbnail: String,
     #[serde(default)]
     pub is_album: bool,
+    #[serde(default)]
+    pub is_artist: bool,
+    #[serde(default)]
+    pub is_playlist: bool,
+    #[serde(default)]
+    pub artist_id: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
 pub struct Section {
     pub title: String,
     pub tracks: Vec<Track>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct AlbumPage {
+    pub title: String,
+    pub subtitle: String,
+    pub thumbnail: String,
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct ArtistPage {
+    pub name: String,
+    pub thumbnail: String,
+    pub top: Vec<Track>,
+    pub albums: Vec<Track>,
+    pub singles: Vec<Track>,
 }
 
 #[derive(Clone)]
@@ -107,6 +130,12 @@ fn parse_list_item(r: &Value) -> Option<Track> {
         .filter(|g| g.contains(':'))
         .map(|g| parse_seconds(g))
         .unwrap_or(0.0);
+    let artist_id = runs(1).and_then(|rs| rs.get(0)).and_then(|run| {
+        run.pointer("/navigationEndpoint/browseEndpoint/browseId")
+            .and_then(Value::as_str)
+            .filter(|id| id.starts_with("MP") && !id.starts_with("MPREb"))
+            .map(|s| s.to_string())
+    });
     Some(Track {
         id: id.into(),
         title,
@@ -115,6 +144,9 @@ fn parse_list_item(r: &Value) -> Option<Track> {
         duration,
         thumbnail: thumbnail(r, "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails"),
         is_album: false,
+        is_artist: false,
+        is_playlist: false,
+        artist_id,
     })
 }
 
@@ -127,19 +159,21 @@ pub fn parse_two_row(r: &Value) -> Option<Track> {
         .find(|g| !matches!(g.as_str(), "Song" | "Video" | "Single" | "Album" | "EP" | "Artist" | "Playlist"))
         .cloned()
         .unwrap_or_default();
-    if let Some(id) = r.pointer("/navigationEndpoint/watchEndpoint/videoId").and_then(Value::as_str) {
-        return Some(Track {
-            id: id.into(),
-            title,
-            artist,
-            album: String::new(),
-            duration: 0.0,
-            thumbnail: thumbnail(r, "/thumbnailRenderer/musicThumbnailRenderer/thumbnail/thumbnails"),
-            is_album: false,
-        });
-    }
-    let browse = r.pointer("/navigationEndpoint/browseEndpoint/browseId").and_then(Value::as_str)?;
+    let artist_id = r
+        .pointer("/subtitle/runs")
+        .and_then(Value::as_array)
+        .and_then(|rs| rs.iter().find_map(|run| {
+            run.pointer("/navigationEndpoint/browseEndpoint/browseId")
+                .and_then(Value::as_str)
+                .filter(|id| id.starts_with("MP") && !id.starts_with("MPREb"))
+                .map(|s| s.to_string())
+        }));
+    let browse = r
+        .pointer("/navigationEndpoint/browseEndpoint/browseId")
+        .and_then(Value::as_str)?;
     let is_album = browse.starts_with("MPREb");
+    let is_playlist = browse.starts_with("VL") || browse.starts_with("PL");
+    let is_artist = browse.starts_with("MP") && !is_album;
     Some(Track {
         id: browse.into(),
         title,
@@ -148,6 +182,9 @@ pub fn parse_two_row(r: &Value) -> Option<Track> {
         duration: 0.0,
         thumbnail: thumbnail(r, "/thumbnailRenderer/musicThumbnailRenderer/thumbnail/thumbnails"),
         is_album,
+        is_artist,
+        is_playlist,
+        artist_id,
     })
 }
 
@@ -223,7 +260,7 @@ impl Yt {
         Ok(sections)
     }
 
-    pub async fn album(&self, id: &str) -> Result<Vec<Track>, String> {
+    pub async fn album(&self, id: &str) -> Result<AlbumPage, String> {
         let body = json!({ "context": web_context(), "browseId": id });
         let v = self.post("browse", body, WEB_UA, true).await?;
         let mut items = vec![];
@@ -232,7 +269,73 @@ impl Yt {
         if tracks.is_empty() {
             return Err("empty album".into());
         }
-        Ok(tracks)
+        let mut headers = vec![];
+        collect(&v, "musicDetailHeaderRenderer", &mut headers);
+        collect(&v, "musicResponsiveHeaderRenderer", &mut headers);
+        let header = headers.first();
+        let title = header
+            .and_then(|h| h.pointer("/title/runs/0/text"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let subtitle = header
+            .and_then(|h| h.pointer("/subtitle/runs"))
+            .and_then(Value::as_array)
+            .map(|rs| rs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(" "))
+            .unwrap_or_default();
+        let thumb = header
+            .map(|h| thumbnail(h, "/thumbnail/thumbnails"))
+            .or_else(|| tracks.first().map(|t| t.thumbnail.clone()))
+            .unwrap_or_default();
+        Ok(AlbumPage { title, subtitle, thumbnail: thumb, tracks })
+    }
+
+    pub async fn artist(&self, id: &str) -> Result<ArtistPage, String> {
+        let body = json!({ "context": web_context(), "browseId": id });
+        let v = self.post("browse", body, WEB_UA, true).await?;
+        let mut headers = vec![];
+        collect(&v, "musicImmersiveHeaderRenderer", &mut headers);
+        let name = headers
+            .first()
+            .and_then(|h| h.pointer("/title/runs/0/text"))
+            .and_then(Value::as_str)
+            .unwrap_or("Artist")
+            .to_string();
+        let thumbnail = headers
+            .first()
+            .and_then(|h| h.pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails"))
+            .and_then(Value::as_array)
+            .and_then(|a| a.last())
+            .and_then(|t| t.get("url"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let mut carousels = vec![];
+        collect(&v, "musicCarouselShelfRenderer", &mut carousels);
+        let mut page = ArtistPage { name, thumbnail, top: Vec::new(), albums: Vec::new(), singles: Vec::new() };
+        for c in &carousels {
+            let title = c
+                .pointer("/header/musicCarouselShelfBasicHeaderRenderer/title/runs/0/text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_lowercase();
+            let mut songs = vec![];
+            collect(c, "musicResponsiveListItemRenderer", &mut songs);
+            let mut cards = vec![];
+            collect(c, "musicTwoRowItemRenderer", &mut cards);
+            if title.contains("song") || title.contains("track") {
+                page.top.extend(songs.into_iter().filter_map(parse_list_item));
+            } else if title.contains("album") {
+                page.albums.extend(cards.into_iter().filter_map(parse_two_row));
+            } else if title.contains("single") || title.contains("ep") {
+                page.singles.extend(cards.into_iter().filter_map(parse_two_row));
+            }
+        }
+        page.top = dedupe(page.top);
+        if page.top.is_empty() && page.albums.is_empty() && page.singles.is_empty() {
+            return Err("empty artist".into());
+        }
+        Ok(page)
     }
     async fn watch_page(&self, id: &str) -> Result<String, String> {
         let page = self
@@ -344,6 +447,9 @@ fn parse_radio_item(r: &Value) -> Option<Track> {
         duration,
         thumbnail: thumb,
         is_album: false,
+        is_artist: false,
+        is_playlist: false,
+        artist_id: None,
     })
 }
 

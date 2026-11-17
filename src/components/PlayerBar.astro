@@ -1,3 +1,11 @@
+<div id="queue-panel" class="lyrics-glass fixed left-3 top-3 bottom-[108px] z-50 flex w-[380px] -translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
+  <div class="mb-2 flex shrink-0 items-center justify-between px-2">
+    <h2 class="text-lg font-medium">Queue</h2>
+    <button id="q-clear" class="press grid size-9 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Clear upcoming"><span class="ms text-on-surface-variant">clear_all</span></button>
+  </div>
+  <div id="queue-list" class="flex-1 overflow-y-auto pr-2"></div>
+</div>
+
 <div id="lyrics-panel" class="lyrics-glass fixed right-3 top-3 bottom-[108px] z-50 flex w-[380px] translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
   <h2 class="mb-2 shrink-0 px-2 text-lg font-medium">Lyrics</h2>
   <div id="lyrics-viewport" class="lyrics-mask flex-1 overflow-y-auto pr-2">
@@ -34,6 +42,7 @@
   </div>
 
   <div class="flex w-[20%] items-center justify-end gap-2">
+    <button id="p-queue" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue"><span class="ms">queue_music</span></button>
     <button id="p-lyrics" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics"><span class="ms">lyrics</span></button>
     <span class="ms text-on-surface-variant">volume_up</span>
     <div class="xslider w-28 shrink-0">
@@ -78,6 +87,7 @@
         <button id="fp-next" class="press grid size-16 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Next"><span class="ms fill text-[30px]">skip_next</span></button>
         <button id="fp-repeat" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span id="fp-repeat-icon" class="ms text-[26px]">repeat</span></button>
         <button id="fp-lyrics" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics"><span class="ms text-[26px]">lyrics</span></button>
+        <button id="fp-queue" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue"><span class="ms text-[26px]">queue_music</span></button>
       </div>
       <div class="mt-8 flex w-72 items-center gap-3">
         <span class="ms text-on-surface-variant">volume_up</span>
@@ -93,7 +103,7 @@
 </div>
 
 <script>
-  import { current, cycleRepeat, next, onError, previous, seek, setVolume, subscribe, toggle, toggleShuffle } from '../lib/player';
+  import { current, cycleRepeat, next, onError, previous, playAt, removeFromQueue, moveInQueue, clearUpcoming, seek, setVolume, subscribe, toggle, toggleShuffle, type PlayerState } from '../lib/player';
   import { isLiked, toggleLike } from '../lib/library';
   import { lyrics } from '../lib/api';
   import { esc, fmt } from '../lib/ui';
@@ -101,6 +111,8 @@
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   const bar = $('player');
   const panel = $('lyrics-panel');
+  const qPanel = $('queue-panel');
+  const qList = $('queue-list');
   const body = $('lyrics-body');
   const art = $<HTMLImageElement>('p-art');
   const artFallback = $('p-art-fallback');
@@ -157,8 +169,56 @@
       .filter((m): m is RegExpMatchArray => !!m)
       .map((m) => ({ t: +m[1] * 60 + +m[2], text: m[3].trim() }));
 
-  vol.value = String(Math.round(parseFloat(localStorage.getItem('melissm.volume') ?? '1') * 100));
+  vol.value = '100';
   fpVolInput.value = vol.value;
+
+  let qSig = '';
+  const renderQueue = (s: PlayerState) => {
+    const sig = s.tracks.map((t) => t.id).join('|');
+    if (sig !== qSig) {
+      qSig = sig;
+      qList.innerHTML = s.tracks
+        .map(
+          (t, i) => `<div class="qrow" draggable="true" data-i="${i}" data-id="${t.id}">
+            ${t.thumbnail ? `<img src="${esc(t.thumbnail)}" alt="" loading="lazy" class="size-10 shrink-0 rounded-xl object-cover" />` : '<div class="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60">music_note</span></div>'}
+            <div class="min-w-0 flex-1"><div class="truncate text-sm font-medium">${esc(t.title)}</div><div class="truncate text-xs opacity-70">${esc(t.artist)}</div></div>
+            <button data-qrm class="press grid size-8 shrink-0 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Remove"><span class="ms text-on-surface-variant">close</span></button>
+          </div>`,
+        )
+        .join('');
+    }
+    qList.querySelectorAll<HTMLElement>('.qrow').forEach((row) => {
+      row.classList.toggle('on', +row.dataset.i! === s.index);
+      row.classList.toggle('past', +row.dataset.i! < s.index);
+    });
+  };
+  let dragI = -1;
+  qList.addEventListener('dragstart', (e) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>('.qrow');
+    if (!row) return;
+    dragI = +row.dataset.i!;
+    e.dataTransfer!.effectAllowed = 'move';
+  });
+  qList.addEventListener('dragover', (e) => e.preventDefault());
+  qList.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const row = (e.target as HTMLElement).closest<HTMLElement>('.qrow');
+    if (row && dragI >= 0 && +row.dataset.i! !== dragI) moveInQueue(dragI, +row.dataset.i!);
+    dragI = -1;
+  });
+  qList.addEventListener('click', (e) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>('.qrow');
+    if (!row) return;
+    if ((e.target as HTMLElement).closest('[data-qrm]')) {
+      removeFromQueue(+row.dataset.i!);
+      return;
+    }
+    playAt(+row.dataset.i!);
+  });
+  $('q-clear').onclick = clearUpcoming;
+  const toggleQueue = () => qPanel.classList.toggle('-translate-x-[115%]');
+  $('p-queue').onclick = toggleQueue;
+  $('fp-queue').onclick = toggleQueue;
 
   onError((msg) => {
     $('p-artist').textContent = msg.includes('no playable stream') ? 'Playback failed, try another song' : 'Something went wrong';
@@ -296,7 +356,7 @@
   };
 
   subscribe((s) => {
-    const t = s.queue[s.index];
+    const t = s.tracks[s.index];
     const has = !!t;
     if (has) {
       if (t.thumbnail) {
@@ -351,9 +411,12 @@
       $('fp-dur').textContent = fmt(s.duration);
     }
     if (!fpVol.classList.contains('dragging')) {
+      vol.value = String(Math.round(s.volume * 100));
       fpVolInput.value = vol.value;
+      paintSlider(vol, 100, s.volume * 100);
       paintSlider(fpVol, 100, +vol.value);
     }
+    renderQueue(s);
     syncFpControls(s.playing, s.shuffle, s.repeat);
     if (has && !panel.classList.contains('translate-x-[115%]')) loadLyrics();
     if (lines.length) {

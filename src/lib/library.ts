@@ -1,42 +1,126 @@
+import { invoke } from '@tauri-apps/api/core';
+import {
+  historyList,
+  isTauri,
+  likesList,
+  playlistAdd,
+  playlistCreate,
+  playlistDelete,
+  playlistRemove,
+  playlistRename,
+  playlistsList,
+  storeImport,
+} from './api';
 import type { Track } from './player';
+import type { PlaylistMeta } from './types';
 
-const LIKES = 'melissm.likes';
-const RECENT = 'melissm.recent';
+let likes: Track[] = [];
+let history: Track[] = [];
+let playlists: PlaylistMeta[] = [];
+const bus = new EventTarget();
 
-const read = (key: string): Track[] => {
-  try {
-    return JSON.parse(localStorage.getItem(key) ?? '[]');
-  } catch {
-    return [];
+const emit = () => bus.dispatchEvent(new Event('change'));
+
+export function subscribe(fn: () => void) {
+  const handler = () => fn();
+  bus.addEventListener('change', handler);
+  return () => bus.removeEventListener('change', handler);
+}
+
+export async function initLibrary() {
+  if (!isTauri) return;
+  likes = await likesList();
+  history = await historyList();
+  playlists = await playlistsList();
+  if (!likes.length && !history.length) {
+    const read = (key: string): Track[] => {
+      try {
+        return JSON.parse(localStorage.getItem(key) ?? '[]');
+      } catch {
+        return [];
+      }
+    };
+    const oldLikes = read('melissm.likes');
+    const oldRecent = read('melissm.recent');
+    if (oldLikes.length || oldRecent.length) {
+      await storeImport(oldLikes, oldRecent);
+      localStorage.removeItem('melissm.likes');
+      localStorage.removeItem('melissm.recent');
+      likes = await likesList();
+      history = await historyList();
+    }
   }
-};
-
-export const likes = (): Track[] => read(LIKES);
-export const recent = (): Track[] => read(RECENT).slice(0, 50);
-
-export const isLiked = (id: string) => likes().some((t) => t.id === id);
-
-export function toggleLike(track: Track): boolean {
-  const all = likes();
-  const next = isLiked(track.id) ? all.filter((t) => t.id !== track.id) : [track, ...all];
-  localStorage.setItem(LIKES, JSON.stringify(next));
-  return isLiked(track.id);
+  emit();
 }
 
-export function pushRecent(track: Track) {
-  if (track.is_album) return;
-  const rest = read(RECENT).filter((t) => t.id !== track.id);
-  localStorage.setItem(RECENT, JSON.stringify([track, ...rest].slice(0, 50)));
-}
+export const getLikes = () => likes;
+export const getHistory = () => history;
+export const getPlaylists = () => playlists;
+export const isLiked = (id: string) => likes.some((t) => t.id === id);
 
-export function removeRecent(id: string) {
-  localStorage.setItem(RECENT, JSON.stringify(read(RECENT).filter((t) => t.id !== id)));
+export async function toggleLike(track: Track): Promise<boolean> {
+  if (!isTauri) return false;
+  const liked = await invoke<boolean>('like_toggle', { track });
+  likes = await likesList();
+  emit();
+  return liked;
 }
 
 export function clearLikes() {
-  localStorage.removeItem(LIKES);
+  if (!isTauri) return;
+  void invoke('likes_clear');
+  likes = [];
+  emit();
 }
 
-export function clearRecent() {
-  localStorage.removeItem(RECENT);
+export function removeHistory(id: string) {
+  if (!isTauri) return;
+  void invoke('history_remove', { id });
+  history = history.filter((t) => t.id !== id);
+  emit();
+}
+
+export function clearHistory() {
+  if (!isTauri) return;
+  void invoke('history_clear');
+  history = [];
+  emit();
+}
+
+export async function createPlaylist(name: string): Promise<number | null> {
+  if (!isTauri || !name.trim()) return null;
+  const id = await playlistCreate(name.trim());
+  playlists = await playlistsList();
+  emit();
+  return id;
+}
+
+export async function renamePlaylist(id: number, name: string) {
+  if (!isTauri || !name.trim()) return;
+  await playlistRename(id, name.trim());
+  playlists = await playlistsList();
+  emit();
+}
+
+export async function deletePlaylist(id: number) {
+  if (!isTauri) return;
+  await playlistDelete(id);
+  playlists = await playlistsList();
+  emit();
+}
+
+export const fetchPlaylistTracks = (id: number) => playlistTracks(id);
+
+export async function addToPlaylist(id: number, track: Track, afterId?: string | null) {
+  if (!isTauri) return;
+  await playlistAdd(id, track, afterId ?? null);
+  playlists = await playlistsList();
+  emit();
+}
+
+export async function removeFromPlaylist(id: number, trackId: string) {
+  if (!isTauri) return;
+  await playlistRemove(id, trackId);
+  playlists = await playlistsList();
+  emit();
 }

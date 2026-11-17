@@ -1,0 +1,49 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Playlist">
+  <div class="mb-8 flex items-center justify-between">
+    <div class="min-w-0">
+      <h1 id="p-name" class="truncate text-5xl font-semibold tracking-tight">Playlist</h1>
+      <p id="p-count" class="mt-2 text-on-surface-variant"></p>
+    </div>
+    <div class="flex shrink-0 gap-3">
+      <button id="p-rename" class="press grid size-14 place-items-center rounded-full bg-surface-container-high" aria-label="Rename"><span class="ms">edit</span></button>
+      <button id="play-all" class="press flex h-14 items-center gap-2 rounded-full bg-primary px-6 font-medium text-on-primary"><span class="ms fill">play_arrow</span>Play all</button>
+    </div>
+  </div>
+  <div id="p-tracks" class="space-y-1"></div>
+</Layout>
+<script>
+  import { fetchPlaylistTracks, removeFromPlaylist, renamePlaylist } from '../lib/library';
+  import { playQueue } from '../lib/player';
+  import { renderTracks } from '../lib/ui';
+  import { navigate } from 'astro:transitions/client';
+
+  document.addEventListener('astro:page-load', async () => {
+    const id = parseInt(new URLSearchParams(location.search).get('id') ?? '', 10);
+    if (!Number.isFinite(id) || id <= 0) return navigate('/library');
+    const nameEl = document.getElementById('p-name')!;
+    const countEl = document.getElementById('p-count')!;
+    const list = document.getElementById('p-tracks')!;
+    const draw = async () => {
+      const tracks = await fetchPlaylistTracks(id);
+      countEl.textContent = `${tracks.length} song${tracks.length === 1 ? '' : 's'}`;
+      renderTracks(list, tracks, {
+        onRemove: (t) => {
+          void removeFromPlaylist(id, t.id).then(draw);
+        },
+      });
+      document.getElementById('play-all')!.onclick = () => tracks.length && playQueue(tracks, 0);
+    };
+    document.getElementById('p-rename')!.onclick = async () => {
+      const name = window.prompt('Rename playlist', nameEl.textContent ?? '');
+      if (name) {
+        await renamePlaylist(id, name);
+        nameEl.textContent = name.trim();
+        document.title = `${name.trim()} · Melissm`;
+      }
+    };
+    await draw();
+  });
+</script>

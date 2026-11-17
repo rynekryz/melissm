@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::{
     collections::BTreeMap,
     env, fs,
+    path::PathBuf,
     process::Command,
     sync::{Arc, Mutex},
     thread,
@@ -22,6 +23,7 @@ pub enum Mode {
 #[serde(rename_all = "lowercase")]
 pub enum Source {
     Wallpaper,
+    Artwork,
     Color(String),
 }
 
@@ -39,6 +41,16 @@ impl Default for ThemeOpts {
 }
 
 pub type SharedOpts = Arc<Mutex<ThemeOpts>>;
+
+static ARTWORK: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub fn set_artwork(path: Option<String>) {
+    *ARTWORK.lock().unwrap() = path.map(PathBuf::from);
+}
+
+fn artwork() -> Option<String> {
+    ARTWORK.lock().unwrap().clone().map(|p| p.to_string_lossy().into_owned())
+}
 
 fn run(cmd: &str, args: &[&str]) -> Option<String> {
     let out = Command::new(cmd).args(args).output().ok()?;
@@ -121,22 +133,27 @@ fn parse_matugen_json(out: &str, mode: &str) -> Option<BTreeMap<String, String>>
 
 fn from_matugen(opts: &ThemeOpts, mode: &str) -> Option<BTreeMap<String, String>> {
     let scheme = format!("scheme-{}", opts.scheme);
-    let mut out = match &opts.source {
+    let mut argv: Vec<String> = vec![
+        "--json".into(), "hex".into(), "--dry-run".into(), "--prefer".into(),
+        "saturation".into(), "-m".into(), mode.into(), "-t".into(), scheme.clone(),
+    ];
+    match &opts.source {
         Source::Wallpaper => {
-            let path = wallpaper()?;
-            run("matugen", &[
-                "--json", "hex", "--dry-run", "--prefer", "saturation",
-                "-m", mode, "-t", &scheme, "image", &path,
-            ])?
+            argv.push("image".into());
+            argv.push(wallpaper()?);
+        }
+        Source::Artwork => {
+            argv.push("image".into());
+            argv.push(artwork()?);
         }
         Source::Color(c) => {
-            let c = hex(c);
-            run("matugen", &[
-                "--json", "hex", "--dry-run",
-                "-m", mode, "-t", &scheme, "color", "hex", &c,
-            ])?
+            argv.push("color".into());
+            argv.push("hex".into());
+            argv.push(hex(c));
         }
-    };
+    }
+    let refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
+    let mut out = run("matugen", &refs)?;
     out = out.replace("\\u003d", "=");
     parse_matugen_json(&out, mode)
 }
@@ -161,10 +178,10 @@ pub fn current(opts: &ThemeOpts) -> Option<BTreeMap<String, String>> {
             if system_dark() { "dark" } else { "light" }
         }
     };
-    if matches!(opts.source, Source::Color(_)) {
-        from_matugen(opts, mode)
-    } else {
-        from_matugen(opts, mode).or_else(from_caelestia)
+    let palette = from_matugen(opts, mode);
+    match opts.source {
+        Source::Color(_) => palette,
+        _ => palette.or_else(from_caelestia),
     }
 }
 
@@ -172,11 +189,19 @@ pub fn watch(app: AppHandle, opts: SharedOpts) {
     thread::spawn(move || {
         let mut last: Option<String> = None;
         loop {
+            let mode = {
+                let o = opts.lock().unwrap().clone();
+                if !matches!(o.source, Source::Wallpaper) {
+                    last = None;
+                    thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+                o
+            };
             let wp = wallpaper();
             if wp != last {
                 last = wp;
-                let opts = opts.lock().unwrap().clone();
-                if let Some(palette) = current(&opts) {
+                if let Some(palette) = current(&mode) {
                     let _ = app.emit("theme-changed", palette);
                 }
             }

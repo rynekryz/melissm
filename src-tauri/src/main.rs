@@ -1,17 +1,26 @@
-
 mod audio;
+mod crypto;
+mod cache;
 mod innertube;
 mod lyrics;
 #[cfg(target_os = "linux")]
 mod mpris;
+mod queue;
+mod store;
 mod theming;
 
-use audio::{Cmd, Player};
-use gstreamer::prelude::*;
+use audio::{Cmd, Event, Initial, Player};
+use cache::Cache;
 use innertube::{Track, Yt};
 use lyrics::Lyrics;
+use queue::{QueueState, Repeat, Snapshot};
 use serde::Serialize;
-use std::{collections::BTreeMap, sync::atomic::Ordering, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::atomic::{AtomicU64, Ordering},
+    sync::Mutex,
+};
+use store::Store;
 use tauri::{
     menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem},
     tray::TrayIcon,
@@ -23,9 +32,14 @@ use theming::{SharedOpts, ThemeOpts};
 struct AppState {
     yt: Yt,
     player: Player,
+    store: std::sync::Arc<Store>,
+    cache: Cache,
     info: Mutex<PlayerInfo>,
     tray: Mutex<Option<TrayIcon>>,
-    handle: AppHandle,
+    queue: Mutex<QueueState>,
+    position: Mutex<f64>,
+    quality: Mutex<String>,
+    tags: AtomicU64,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -63,6 +77,400 @@ fn tray_menu(app: &AppHandle, info: &PlayerInfo) -> tauri::Result<Menu<Wry>> {
     Menu::with_items(app, &items)
 }
 
+fn refresh_tray(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let info = state.info.lock().unwrap().clone();
+    let mut tray = state.tray.lock().unwrap();
+    if let Some(tray) = tray.as_mut() {
+        if let Ok(menu) = tray_menu(app, &info) {
+            let _ = tray.set_menu(Some(menu));
+        }
+    }
+}
+
+fn emit_queue(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let snap = state.queue.lock().unwrap().snapshot();
+    let _ = app.emit("queue-state", snap);
+}
+
+fn push_flags(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let (shuffle, repeat) = {
+        let q = state.queue.lock().unwrap();
+        (q.shuffle, q.repeat.as_str().to_string())
+    };
+    {
+        let mut info = state.info.lock().unwrap();
+        info.shuffle = shuffle;
+        info.repeat = repeat.clone();
+    }
+    refresh_tray(app);
+    #[cfg(target_os = "linux")]
+    mpris::update_flags(shuffle, repeat);
+}
+
+fn update_now_playing(app: &AppHandle, t: &Track) {
+    let state = app.state::<AppState>();
+    {
+        let mut info = state.info.lock().unwrap();
+        info.title = t.title.clone();
+        info.artist = t.artist.clone();
+    }
+    refresh_tray(app);
+    #[cfg(target_os = "linux")]
+    mpris::update_track(t.title.clone(), t.artist.clone(), t.album.clone(), t.thumbnail.clone());
+}
+
+fn update_artwork(app: AppHandle, t: Track) {
+    let opts: State<SharedOpts> = app.state();
+    let source_artwork = matches!(opts.lock().unwrap().source, theming::Source::Artwork);
+    if !source_artwork {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let id = t.id.clone();
+        let thumb = t.thumbnail.clone();
+        let path = if let Some(p) = state.cache.art_plain(&id) {
+            Some(p)
+        } else {
+            if thumb.is_empty() {
+                None
+            } else {
+                match state.yt.http.get(&thumb).send().await {
+                    Ok(r) => match r.bytes().await {
+                        Ok(bytes) => {
+                            let _ = state.cache.store_art(&id, &bytes);
+                            state.cache.art_plain(&id)
+                        }
+                        Err(_) => None,
+                    },
+                    Err(_) => None,
+                }
+            }
+        };
+        theming::set_artwork(path);
+        let opts: State<SharedOpts> = app.state();
+        let snapshot = opts.lock().unwrap().clone();
+        if let Some(palette) = tauri::async_runtime::spawn_blocking(move || theming::current(&snapshot))
+            .await
+            .ok()
+            .flatten()
+        {
+            let _ = app.emit("theme-changed", palette);
+        }
+    });
+}
+
+async fn resolve_url(state: &AppState, id: &str, quality: &str) -> Result<(String, f64, String), String> {
+    if state.cache.has_audio(id) {
+        if let Some(path) = state.cache.audio_plain(id) {
+            return Ok((format!("file://{path}"), 0.0, String::new()));
+        }
+    }
+    let (url, dur, ua) = state.yt.resolve_stream(id, quality).await?;
+    Ok((url, dur, ua.to_string()))
+}
+
+fn cache_track(http: reqwest::Client, cache: Cache, id: String, url: String) {
+    if url.starts_with("file:") {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        if let Ok(r) = http.get(&url).send().await {
+            if let Ok(bytes) = r.bytes().await {
+                let _ = cache.store_audio(&id, &bytes);
+            }
+        }
+    });
+}
+
+async fn start_index(app: AppHandle, i: usize, _gapless: bool) {
+    let state = app.state::<AppState>();
+    let t = {
+        let mut q = state.queue.lock().unwrap();
+        let t = q.tracks.get(i).cloned();
+        if t.is_some() {
+            q.index = i as isize;
+            q.expected_next = None;
+            q.loading = true;
+        }
+        t
+    };
+    let Some(t) = t else { return; };
+    emit_queue(&app);
+    let quality = state.quality.lock().unwrap().clone();
+    let resolved = resolve_url(&state, &t.id, &quality).await;
+    let (url, dur, ua) = match resolved {
+        Ok(r) => r,
+        Err(e) => {
+            let mut q = state.queue.lock().unwrap();
+            q.loading = false;
+            drop(q);
+            emit_queue(&app);
+            let _ = app.emit("playback-failed", e);
+            return;
+        }
+    };
+    let duration = if dur > 0.0 { dur } else { t.duration };
+    state.player.send(Cmd::Load { url: url.clone(), duration, ua: ua.clone() });
+    if url.starts_with("file:") {
+        state.cache.drop_plain(Some(&t.id));
+    } else if matches!(state.store.setting("autocache").as_deref(), Some("1") | None)
+        && !state.cache.has_audio(&t.id)
+    {
+        cache_track(state.yt.http.clone(), state.cache.clone(), t.id.clone(), url.clone());
+    }
+    {
+        let mut q = state.queue.lock().unwrap();
+        q.loading = false;
+    }
+    emit_queue(&app);
+    update_now_playing(&app, &t);
+    state.store.history_push(&t);
+    update_artwork(app.clone(), t.clone());
+    preload_next(app.clone()).await;
+}
+
+async fn extend_radio(app: AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    let (cur, id) = {
+        let q = state.queue.lock().unwrap();
+        match q.current() {
+            Some(t) => (q.index, t.id.clone()),
+            None => return false,
+        }
+    };
+    let Ok(related) = state.yt.radio(&id).await else {
+        return false;
+    };
+    let mut q = state.queue.lock().unwrap();
+    let fresh: Vec<Track> = related
+        .into_iter()
+        .filter(|r| !q.tracks.iter().any(|t| t.id == r.id))
+        .take(25)
+        .collect();
+    let added = fresh.len();
+    q.tracks.extend(fresh);
+    drop(q);
+    if added == 0 {
+        return false;
+    }
+    let _ = cur;
+    emit_queue(&app);
+    true
+}
+
+async fn advance(app: AppHandle, force: Option<usize>) {
+    let state = app.state::<AppState>();
+    let cur = {
+        let q = state.queue.lock().unwrap();
+        if q.loading || q.tracks.is_empty() {
+            return;
+        }
+        q.index
+    };
+    let next = match force {
+        Some(i) => Some(i),
+        None => {
+            let peek = { state.queue.lock().unwrap().peek_next(cur.max(0) as usize) };
+            peek.or_else(|| None::<usize>)
+        }
+    };
+    let next = match next {
+        Some(i) => i,
+        None => {
+            let (last, repeat) = {
+                let q = state.queue.lock().unwrap();
+                (cur as usize >= q.tracks.len().saturating_sub(1), q.repeat)
+            };
+            if last && repeat == Repeat::Off {
+                if extend_radio(app.clone()).await {
+                    cur as usize + 1
+                } else {
+                    state.player.send(Cmd::Stop);
+                    {
+                        let mut info = state.info.lock().unwrap();
+                        info.playing = false;
+                    }
+                    refresh_tray(&app);
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
+    };
+    if state.queue.lock().unwrap().shuffle && force.is_none() {
+        let mut q = state.queue.lock().unwrap();
+        q.prev.push(cur.max(0) as usize);
+    }
+    start_index(app.clone(), next, false).await;
+}
+
+async fn handle_ended(app: AppHandle, tag: u64, gapless: bool) {
+    let state = app.state::<AppState>();
+    let (cur, repeat, expected) = {
+        let q = state.queue.lock().unwrap();
+        (q.index, q.repeat, q.expected_next)
+    };
+    if repeat == Repeat::One {
+        start_index(app.clone(), cur.max(0) as usize, false).await;
+        return;
+    }
+    if gapless {
+        if let Some((t, i)) = expected {
+            if t == tag && (i as isize) != cur {
+                {
+                    let mut q = state.queue.lock().unwrap();
+                    q.prev.push(cur.max(0) as usize);
+                    q.expected_next = None;
+                }
+                start_index(app.clone(), i, true).await;
+                return;
+            }
+        }
+        {
+            let mut q = state.queue.lock().unwrap();
+            q.prev.push(cur.max(0) as usize);
+            q.expected_next = None;
+        }
+        advance(app, None).await;
+        return;
+    }
+    advance(app, None).await;
+}
+
+async fn preload_next(app: AppHandle) {
+    let state = app.state::<AppState>();
+    let next = {
+        let q = state.queue.lock().unwrap();
+        let cur = q.index;
+        if cur < 0 {
+            state.player.send(Cmd::CancelPreload);
+            return;
+        }
+        q.peek_next(cur as usize).map(|i| {
+            let tag = state.tags.fetch_add(1, Ordering::SeqCst) + 1;
+            (cur, tag, i)
+        })
+    };
+    let Some((cur, tag, idx)) = next else {
+        let mut q = state.queue.lock().unwrap();
+        q.expected_next = None;
+        state.player.send(Cmd::CancelPreload);
+        return;
+    };
+    let id = state.queue.lock().unwrap().tracks.get(idx).map(|t| t.id.clone());
+    let Some(id) = id else { return };
+    let quality = state.quality.lock().unwrap().clone();
+    let Ok((url, _dur, ua)) = resolve_url(&state, &id, &quality).await else {
+        let mut q = state.queue.lock().unwrap();
+        q.expected_next = None;
+        state.player.send(Cmd::CancelPreload);
+        return;
+    };
+    {
+        let mut q = state.queue.lock().unwrap();
+        let still = q.peek_next(cur as usize) == Some(idx) && q.index == cur;
+        if !still {
+            return;
+        }
+        q.expected_next = Some((tag, idx));
+    }
+    state.player.send(Cmd::Preload { url, ua, tag });
+}
+
+fn skip_prev(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let pos = *state.position.lock().unwrap();
+    if pos > 4.0 {
+        state.player.send(Cmd::Seek(0.0));
+        return;
+    }
+    let cur = state.queue.lock().unwrap().index;
+    let target = {
+        let mut q = state.queue.lock().unwrap();
+        q.prev.pop().map(|i| i as isize).filter(|i| *i != cur).or(Some(cur - 1)).filter(|i| *i >= 0)
+    };
+    if let Some(i) = target {
+        tauri::async_runtime::spawn(start_index(app.clone(), i as usize, false));
+    }
+}
+
+fn toggle_play(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.info.lock().unwrap().playing {
+        state.player.send(Cmd::Pause);
+    } else {
+        state.player.send(Cmd::Resume);
+    }
+}
+
+fn toggle_shuffle(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    {
+        let mut q = state.queue.lock().unwrap();
+        q.shuffle = !q.shuffle;
+        q.prev.clear();
+        state.store.set_setting("shuffle", if q.shuffle { "1" } else { "0" });
+    }
+    push_flags(app);
+    emit_queue(&app);
+    tauri::async_runtime::spawn(preload_next(app.clone()));
+}
+
+fn cycle_repeat(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    {
+        let mut q = state.queue.lock().unwrap();
+        q.repeat = match q.repeat {
+            Repeat::Off => Repeat::All,
+            Repeat::All => Repeat::One,
+            Repeat::One => Repeat::Off,
+        };
+        state.store.set_setting("repeat", q.repeat.as_str());
+    }
+    push_flags(app);
+    emit_queue(&app);
+    tauri::async_runtime::spawn(preload_next(app.clone()));
+}
+
+fn reschedule_preload(app: &AppHandle) {
+    tauri::async_runtime::spawn(preload_next(app.clone()));
+}
+
+pub fn native_action(app: &AppHandle, action: &str) {
+    match action {
+        "play" => app.state::<AppState>().player.send(Cmd::Resume),
+        "pause" => app.state::<AppState>().player.send(Cmd::Pause),
+        "play-pause" => toggle_play(app),
+        "next" => {
+            let a = app.clone();
+            tauri::async_runtime::spawn(async move { advance(a, None).await });
+        }
+        "previous" => skip_prev(app),
+        "shuffle" => toggle_shuffle(app),
+        "repeat" => cycle_repeat(app),
+        s => {
+            if let Some(v) = s.strip_prefix("seek:") {
+                if let Ok(t) = v.parse::<f64>() {
+                    app.state::<AppState>().player.send(Cmd::Seek(t));
+                }
+            } else if let Some(v) = s.strip_prefix("volume:") {
+                if let Ok(x) = v.parse::<f64>() {
+                    let x = x.clamp(0.0, 1.0);
+                    app.state::<AppState>().player.send(Cmd::Volume(x as f32));
+                    app.state::<AppState>().store.set_setting("volume", &x.to_string());
+                    #[cfg(target_os = "linux")]
+                    mpris::update_volume(x);
+                }
+            }
+        }
+    }
+}
+
 #[tauri::command]
 async fn search(state: State<'_, AppState>, query: String) -> Result<Vec<Track>, String> {
     state.yt.search(&query).await
@@ -74,47 +482,59 @@ async fn home(state: State<'_, AppState>) -> Result<Vec<innertube::Section>, Str
 }
 
 #[tauri::command]
-async fn album(state: State<'_, AppState>, id: String) -> Result<Vec<Track>, String> {
+async fn album(state: State<'_, AppState>, id: String) -> Result<innertube::AlbumPage, String> {
     state.yt.album(&id).await
 }
 
 #[tauri::command]
-async fn play(state: State<'_, AppState>, id: String, quality: Option<String>) -> Result<f64, String> {
-    let generation = state.player.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    state.player.send(Cmd::Stop);
-    let (url, duration, ua) = state.yt.resolve_stream(&id, quality.as_deref().unwrap_or("max")).await?;
-    if state.player.generation.load(Ordering::SeqCst) != generation {
-        return Err("superseded".into());
-    }
-    state.player.send(Cmd::Load { url, duration, ua: ua.to_string() });
-    Ok(duration)
+async fn artist(state: State<'_, AppState>, id: String) -> Result<innertube::ArtistPage, String> {
+    state.yt.artist(&id).await
 }
 
 #[tauri::command]
-async fn radio(state: State<'_, AppState>, id: String) -> Result<Vec<Track>, String> {
-    state.yt.radio(&id).await
+fn get_queue(state: State<'_, AppState>) -> Snapshot {
+    state.queue.lock().unwrap().snapshot()
 }
 
 #[tauri::command]
-fn set_speed(state: State<'_, AppState>, value: f64) {
-    if let Some(f) = &state.player.filter {
-        f.pitch.set_property("tempo", value.clamp(0.5, 2.0) as f32);
+async fn play_tracks(app: AppHandle, tracks: Vec<Track>, index: usize) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if tracks.is_empty() {
+        return Err("empty queue".into());
     }
+    {
+        let mut q = state.queue.lock().unwrap();
+        q.tracks = tracks;
+        q.index = -1;
+        q.prev.clear();
+        q.expected_next = None;
+    }
+    state.player.send(Cmd::CancelPreload);
+    emit_queue(&app);
+    start_index(app.clone(), index, false).await;
+    Ok(())
 }
 
 #[tauri::command]
-fn set_pitch(state: State<'_, AppState>, value: f64) {
-    if let Some(f) = &state.player.filter {
-        f.pitch.set_property("pitch", value.clamp(0.25, 4.0) as f32);
-    }
+async fn play_at(app: AppHandle, index: usize) -> Result<(), String> {
+    advance(app.clone(), Some(index)).await;
+    Ok(())
 }
 
 #[tauri::command]
-fn set_eq(state: State<'_, AppState>, band: u32, gain: f64) {
-    if let Some(f) = &state.player.filter {
-        f.eq
-            .set_property(format!("band{band}").as_str(), gain.clamp(-24.0, 12.0));
-    }
+async fn skip_next(app: AppHandle) -> Result<(), String> {
+    advance(app.clone(), None).await;
+    Ok(())
+}
+
+#[tauri::command]
+fn skip_prev_cmd(app: AppHandle) {
+    skip_prev(&app);
+}
+
+#[tauri::command]
+fn toggle_play_cmd(app: AppHandle) {
+    toggle_play(&app);
 }
 
 #[tauri::command]
@@ -134,9 +554,230 @@ fn seek(state: State<'_, AppState>, seconds: f64) {
 
 #[tauri::command]
 fn volume(state: State<'_, AppState>, value: f32) {
-    state.player.send(Cmd::Volume(value));
+    let v = value.clamp(0.0, 1.0);
+    state.player.send(Cmd::Volume(v));
+    state.store.set_setting("volume", &v.to_string());
     #[cfg(target_os = "linux")]
-    mpris::update_volume(value as f64);
+    mpris::update_volume(v as f64);
+}
+
+#[tauri::command]
+fn toggle_shuffle_cmd(app: AppHandle) {
+    toggle_shuffle(&app);
+}
+
+#[tauri::command]
+fn cycle_repeat_cmd(app: AppHandle) {
+    cycle_repeat(&app);
+}
+
+#[tauri::command]
+fn set_quality(state: State<'_, AppState>, quality: String) {
+    *state.quality.lock().unwrap() = quality.clone();
+    state.store.set_setting("quality", &quality);
+}
+
+#[tauri::command]
+fn get_settings(state: State<'_, AppState>) -> BTreeMap<String, String> {
+    let mut m = BTreeMap::new();
+    for key in ["volume", "speed", "pitch", "eq", "quality", "crossfade", "shuffle", "repeat", "autocache"] {
+        m.insert(key.to_string(), state.store.setting(key).unwrap_or_default());
+    }
+    m
+}
+
+#[tauri::command]
+fn set_speed(state: State<'_, AppState>, value: f64) {
+    state.player.set_speed(value);
+    state.store.set_setting("speed", &value.to_string());
+}
+
+#[tauri::command]
+fn set_pitch(state: State<'_, AppState>, value: f64) {
+    state.player.set_pitch(value);
+    state.store.set_setting("pitch", &value.to_string());
+}
+
+#[tauri::command]
+fn set_eq(state: State<'_, AppState>, band: u32, gain: f64) {
+    state.player.set_eq(band, gain);
+    let mut eq: Vec<f64> = state
+        .store
+        .setting("eq")
+        .and_then(|v| serde_json::from_str::<Vec<f64>>(&v).ok())
+        .unwrap_or_else(|| vec![0.0; 10]);
+    if eq.len() != 10 {
+        eq = vec![0.0; 10];
+    }
+    eq[band as usize % 10] = gain;
+    state.store.set_setting("eq", &serde_json::to_string(&eq).unwrap_or_default());
+}
+
+#[tauri::command]
+fn set_crossfade(state: State<'_, AppState>, seconds: u32) {
+    state.player.send(Cmd::Fade(seconds.clamp(0, 15)));
+    state.store.set_setting("crossfade", &seconds.to_string());
+}
+
+#[tauri::command]
+fn set_autocache(state: State<'_, AppState>, enabled: bool) {
+    state.store.set_setting("autocache", if enabled { "1" } else { "0" });
+}
+
+#[tauri::command]
+fn cache_info(state: State<'_, AppState>) -> u64 {
+    state.cache.size()
+}
+
+#[tauri::command]
+fn cache_clear(state: State<'_, AppState>) -> u64 {
+    state.cache.clear()
+}
+
+#[tauri::command]
+async fn add_to_queue(app: AppHandle, track: Track, next: bool) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let empty = {
+        let mut q = state.queue.lock().unwrap();
+        if q.index < 0 || q.tracks.is_empty() {
+            q.tracks = vec![track];
+            q.index = 0;
+            true
+        } else {
+            let at = if next { (q.index as usize) + 1 } else { q.tracks.len() };
+            let at = at.min(q.tracks.len());
+            q.tracks.insert(at, track);
+            q.expected_next = None;
+            false
+        }
+    };
+    state.player.send(Cmd::CancelPreload);
+    emit_queue(&app);
+    if empty {
+        start_index(app.clone(), 0, false).await;
+    } else {
+        reschedule_preload(&app);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_from_queue(app: AppHandle, index: usize) {
+    let state = app.state::<AppState>();
+    let mut q = state.queue.lock().unwrap();
+    if index >= q.tracks.len() || index as isize == q.index {
+        return;
+    }
+    q.tracks.remove(index);
+    if (index as isize) < q.index {
+        q.index -= 1;
+    }
+    q.prev.retain(|p| *p != index);
+    q.expected_next = None;
+    drop(q);
+    state.player.send(Cmd::CancelPreload);
+    emit_queue(&app);
+    reschedule_preload(&app);
+}
+
+#[tauri::command]
+fn move_in_queue(app: AppHandle, from: usize, to: usize) {
+    let state = app.state::<AppState>();
+    let mut q = state.queue.lock().unwrap();
+    if from >= q.tracks.len() || to >= q.tracks.len() || from as isize == q.index || to as isize == q.index {
+        return;
+    }
+    let t = q.tracks.remove(from);
+    q.tracks.insert(to, t);
+    q.expected_next = None;
+    drop(q);
+    state.player.send(Cmd::CancelPreload);
+    emit_queue(&app);
+    reschedule_preload(&app);
+}
+
+#[tauri::command]
+fn clear_upcoming(app: AppHandle) {
+    let state = app.state::<AppState>();
+    let mut q = state.queue.lock().unwrap();
+    if q.index >= 0 {
+        let keep = q.index as usize + 1;
+        q.tracks.truncate(keep);
+    }
+    q.expected_next = None;
+    drop(q);
+    state.player.send(Cmd::CancelPreload);
+    emit_queue(&app);
+}
+
+#[tauri::command]
+fn likes_list(state: State<'_, AppState>) -> Vec<Track> {
+    state.store.likes()
+}
+
+#[tauri::command]
+fn like_toggle(state: State<'_, AppState>, track: Track) -> bool {
+    state.store.like_toggle(&track)
+}
+
+#[tauri::command]
+fn likes_clear(state: State<'_, AppState>) {
+    state.store.likes_clear();
+}
+
+#[tauri::command]
+fn history_list(state: State<'_, AppState>) -> Vec<Track> {
+    state.store.history()
+}
+
+#[tauri::command]
+fn history_remove(state: State<'_, AppState>, id: String) {
+    state.store.history_remove(&id);
+}
+
+#[tauri::command]
+fn history_clear(state: State<'_, AppState>) {
+    state.store.history_clear();
+}
+
+#[tauri::command]
+fn store_import(state: State<'_, AppState>, likes: Vec<Track>, history: Vec<Track>) {
+    state.store.import(&likes, &history);
+}
+
+#[tauri::command]
+fn playlists_list(state: State<'_, AppState>) -> Vec<store::PlaylistMeta> {
+    state.store.playlists()
+}
+
+#[tauri::command]
+fn playlist_create(state: State<'_, AppState>, name: String) -> i64 {
+    state.store.playlist_create(&name)
+}
+
+#[tauri::command]
+fn playlist_rename(state: State<'_, AppState>, id: i64, name: String) {
+    state.store.playlist_rename(id, &name);
+}
+
+#[tauri::command]
+fn playlist_delete(state: State<'_, AppState>, id: i64) {
+    state.store.playlist_delete(id);
+}
+
+#[tauri::command]
+fn playlist_tracks(state: State<'_, AppState>, id: i64) -> Vec<Track> {
+    state.store.playlist_tracks(id)
+}
+
+#[tauri::command]
+fn playlist_add(state: State<'_, AppState>, id: i64, track: Track, after_id: Option<String>) {
+    state.store.playlist_add(id, &track, after_id.as_deref());
+}
+
+#[tauri::command]
+fn playlist_remove(state: State<'_, AppState>, id: i64, track_id: String) {
+    state.store.playlist_remove(id, &track_id);
 }
 
 #[tauri::command]
@@ -148,31 +789,6 @@ async fn lyrics(
     duration: f64,
 ) -> Result<Lyrics, String> {
     lyrics::fetch(&state.yt.http, &title, &artist, &album, duration).await
-}
-
-#[tauri::command]
-fn sync_player_state(
-    state: State<'_, AppState>,
-    playing: bool,
-    shuffle: bool,
-    repeat: String,
-    title: String,
-    artist: String,
-    album: String,
-    thumbnail: String,
-) {
-    *state.info.lock().unwrap() = PlayerInfo { playing, shuffle, repeat, title, artist };
-    let info = state.info.lock().unwrap().clone();
-    if let Some(tray) = state.tray.lock().unwrap().as_mut() {
-        if let Ok(menu) = tray_menu(&state.handle, &info) {
-            let _ = tray.set_menu(Some(menu));
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        mpris::update_track(info.title.clone(), info.artist.clone(), album, thumbnail);
-        mpris::update_flags(shuffle, info.repeat.clone());
-    }
 }
 
 #[tauri::command]
@@ -212,7 +828,31 @@ fn toggle_fullscreen(window: tauri::WebviewWindow) {
     let _ = window.set_fullscreen(!fs);
 }
 
+fn read_settings(store: &Store) -> Initial {
+    let f = |k: &str, d: f64| -> f64 {
+        store
+            .setting(k)
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(d)
+    };
+    let eq: Vec<f64> = store
+        .setting("eq")
+        .and_then(|v| serde_json::from_str::<Vec<f64>>(&v).ok())
+        .filter(|v| v.len() == 10)
+        .unwrap_or_else(|| vec![0.0; 10]);
+    let mut arr = [0.0f64; 10];
+    arr.copy_from_slice(&eq);
+    Initial {
+        volume: f("volume", 1.0).clamp(0.0, 1.0),
+        speed: f("speed", 1.0),
+        pitch: f("pitch", 1.0),
+        eq: arr,
+    }
+}
+
 fn main() {
+    let store = std::sync::Arc::new(Store::new());
+    store.clone().spawn_saver();
     let opts: SharedOpts = std::sync::Arc::new(std::sync::Mutex::new(ThemeOpts::default()));
     tauri::Builder::default()
         .manage(opts.clone())
@@ -222,32 +862,88 @@ fn main() {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_icon(icon.clone());
             }
+            let initial = read_settings(&store);
+            let player = Player::new(handle.clone(), initial);
+            let cb_app = handle.clone();
+            {
+                let mut cb = player.cb.lock().unwrap();
+                *cb = Some(Box::new(move |e: Event| match e {
+                    Event::Ended { tag, gapless } => {
+                        let a = cb_app.clone();
+                        tauri::async_runtime::spawn(async move { handle_ended(a, tag, gapless).await });
+                    }
+                    Event::Failed(msg) => {
+                        let _ = cb_app.emit("playback-failed", msg);
+                    }
+                    Event::Status { playing, position } => {
+                        if let Some(state) = cb_app.try_state::<AppState>() {
+                            *state.position.lock().unwrap() = position;
+                            let mut info = state.info.lock().unwrap();
+                            if info.playing != playing {
+                                info.playing = playing;
+                                drop(info);
+                                drop(state);
+                                refresh_tray(&cb_app);
+                            }
+                        }
+                    }
+                }));
+            }
+            let shuffle = store.setting("shuffle").as_deref() == Some("1");
+            let repeat = store
+                .setting("repeat")
+                .and_then(|r| match r.as_str() {
+                    "all" => Some(Repeat::All),
+                    "one" => Some(Repeat::One),
+                    _ => Some(Repeat::Off),
+                })
+                .unwrap_or(Repeat::Off);
+            let crossfade: u32 = store
+                .setting("crossfade")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+            player.send(Cmd::Fade(crossfade));
             app.manage(AppState {
                 yt: Yt::new(),
-                player: Player::new(handle.clone()),
-                info: Mutex::new(PlayerInfo::default()),
+                player,
+                store: store.clone(),
+                cache: Cache::new(),
+                info: Mutex::new(PlayerInfo {
+                    playing: false,
+                    shuffle,
+                    repeat: repeat.as_str().to_string(),
+                    title: String::new(),
+                    artist: String::new(),
+                }),
                 tray: Mutex::new(None),
-                handle: handle.clone(),
+                queue: Mutex::new(QueueState { shuffle, repeat, ..QueueState::default() }),
+                position: Mutex::new(0.0),
+                quality: Mutex::new(store.setting("quality").unwrap_or_else(|| "max".into())),
+                tags: AtomicU64::new(1),
             });
             theming::watch(handle.clone(), opts.clone());
             #[cfg(target_os = "linux")]
             mpris::start(handle.clone());
 
-            let menu = tray_menu(&handle, &PlayerInfo::default())?;
+            let info = app.state::<AppState>().info.lock().unwrap().clone();
+            let menu = tray_menu(&handle, &info)?;
             let tray = TrayIconBuilder::new()
                 .icon(icon)
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        if let Some(state) = app.try_state::<AppState>() {
+                            state.store.save();
+                        }
+                        app.exit(0);
+                    }
                     "show" => {
                         if let Some(w) = app.get_webview_window("main") {
                             let _ = w.show();
                             let _ = w.set_focus();
                         }
                     }
-                    id => {
-                        let _ = app.emit("tray-action", id.to_string());
-                    }
+                    id => native_action(app, id.as_ref()),
                 })
                 .build(app)?;
             if let Some(state) = app.try_state::<AppState>() {
@@ -262,9 +958,23 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            search, home, album, play, radio, pause, resume, seek, volume, lyrics, set_theme,
-            set_speed, set_pitch, set_eq, system_scale, sync_player_state, toggle_fullscreen
+            search, home, album, artist, get_queue, play_tracks, play_at, skip_next, skip_prev_cmd,
+            toggle_play_cmd, pause, resume, seek, volume, toggle_shuffle_cmd, cycle_repeat_cmd,
+            set_quality, get_settings, set_speed, set_pitch, set_eq, set_crossfade, set_autocache,
+            cache_info, cache_clear, add_to_queue, remove_from_queue, move_in_queue, clear_upcoming,
+            likes_list, like_toggle, likes_clear, history_list, history_remove, history_clear,
+            store_import, playlists_list, playlist_create, playlist_rename, playlist_delete,
+            playlist_tracks, playlist_add, playlist_remove, lyrics, set_theme, system_scale,
+            toggle_fullscreen
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run melissm");
+        .build(tauri::generate_context!())
+        .expect("failed to build melissm")
+        .run(|app, event| {
+            use tauri::RunEvent;
+            if let RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.store.save();
+                }
+            }
+        });
 }
