@@ -116,6 +116,11 @@ img { -webkit-user-drag: none; user-drag: none; }
 
 .press { transition: border-radius 0.4s var(--spring), transform 0.4s var(--spring), background-color 0.3s; }
 .press:active { transform: scale(0.92); border-radius: 14px; }
+*:focus { outline: none; }
+
+.plmenu { position: fixed; z-index: 60; display: flex; flex-direction: column; min-width: 200px; max-height: 320px; overflow-y: auto; padding: 8px; border-radius: 20px; background: var(--md-sys-color-surface-container-high); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+.plmenu button { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 14px; font-size: 14px; font-weight: 500; text-align: left; transition: background-color 0.2s; }
+.plmenu button:hover { background: var(--md-sys-color-surface-container-highest); }
 
 .play-btn { border-radius: 50%; }
 .play-btn[data-playing="true"] { border-radius: 22px; }

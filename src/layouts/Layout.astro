@@ -33,6 +33,7 @@ const path = Astro.url.pathname;
       initSliders();
       initSwipe();
       document.addEventListener('astro:page-load', () => initSliders());
+      window.addEventListener('contextmenu', (e) => e.preventDefault());
       document.addEventListener('gesturestart', (e) => e.preventDefault());
       window.addEventListener('wheel', (e) => {
         if (e.ctrlKey) e.preventDefault();

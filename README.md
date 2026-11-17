@@ -55,7 +55,10 @@ npm run tauri build
 - Live Material 3 Expressive theming from your wallpaper via Matugen
 - Caelestia scheme fallback when wallpaper extraction doesn't work out
 - MPRIS media controls, shows up in your system media widget with lyrics
-- Search, Home, Album, Library and History
+- Search, Home, Album, Artist, Playlist, Library and History
+- Native queue with play next, add to queue, reorder and clear upcoming
+- Gapless playback and optional crossfade
+- Playlists, liked songs and listening history stored locally
 - Synced lyrics panel via LrcLib, slides in like it's cool
 - System tray with playback controls, so you can pause when the boss walks by
 - Play / pause / resume / seek / volume
@@ -63,6 +66,10 @@ npm run tauri build
 - Desktop entry and GTK app id so your app launcher actually knows it exists
 - It plays music, literally
 - etc.
+
+## Legal
+
+Melissm is an independent, open-source music player and is not affiliated with, funded by, authorized by, or endorsed by YouTube, Google LLC, or any of their affiliates or subsidiaries. All trademarks, service marks and other intellectual property referenced here belong to their respective owners. Melissm does not host, distribute or own any media content, all playback streams directly from YouTube Music.
 
 ## Credits
 

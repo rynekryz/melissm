@@ -18,7 +18,7 @@ import Layout from '../layouts/Layout.astro';
   </div>
 </Layout>
 <script>
-  import { home } from '../lib/api';
+  import { home, playlistsForYou } from '../lib/api';
   import { getHistory } from '../lib/library';
   import { renderCards } from '../lib/ui';
 
@@ -37,6 +37,21 @@ import Layout from '../layouts/Layout.astro';
     if (recents.length) {
       document.getElementById('recent-section')!.classList.remove('hidden');
       renderCards(document.getElementById('recent-row')!, recents, { row: true });
+      const seen = new Map<string, number>();
+      for (const t of recents) if (t.artist) seen.set(t.artist, (seen.get(t.artist) ?? 0) + 1);
+      const top = [...seen.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (top) {
+        try {
+          const cards = (await playlistsForYou(top)).slice(0, 14);
+          if (cards.length) {
+            const sec = document.createElement('section');
+            sec.innerHTML = `<h2 class="mb-4 text-2xl font-medium"></h2><div class="h-row"></div>`;
+            sec.querySelector('h2')!.textContent = `Playlists for you`;
+            sectionsEl.insertBefore(sec, document.getElementById('skeleton'));
+            renderCards(sec.querySelector<HTMLElement>('.h-row')!, cards, { row: true });
+          }
+        } catch {}
+      }
     }
 
     const skeleton = document.getElementById('skeleton')!;

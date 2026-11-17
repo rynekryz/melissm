@@ -306,42 +306,48 @@ fn run(
         }
 
         use gstreamer::MessageView;
-        while let Some(msg) = chains[active].playbin.bus().unwrap().timed_pop(ClockTime::ZERO) {
-            match msg.view() {
-                MessageView::Eos(..) => {
-                    let other = 1 - active;
-                    if chains[other].prepared {
-                        let tag = chains[other].tag;
-                        if !fading {
-                            chains[other].apply_volume(volume);
-                            let _ = chains[other].playbin.set_state(State::Playing);
-                        }
-                        chains[active].stop();
-                        active = other;
-                        fading = false;
-                        fade_pos = 0.0;
-                        chains[active].gain = 1.0;
+        for ci in [active, 1 - active] {
+            let c = &chains[ci];
+            let Some(bus) = c.playbin.bus() else { continue };
+            while let Some(msg) = bus.timed_pop(ClockTime::ZERO) {
+                match msg.view() {
+                    MessageView::Error(err) if ci == active || fading => {
+                        chains[0].stop();
+                        chains[1].stop();
+                        let _ = app.emit("player-state", Status::default());
                         if let Some(f) = cb.lock().unwrap().as_ref() {
-                            f(Event::Ended { tag, gapless: true });
+                            f(Event::Failed(err.error().to_string()));
                         }
-                    } else {
-                        chains[active].ended = true;
-                        if let Some(f) = cb.lock().unwrap().as_ref() {
-                            f(Event::Ended { tag: 0, gapless: false });
+                        return;
+                    }
+                    MessageView::Error(..) => {
+                        chains[ci].stop();
+                    }
+                    MessageView::Eos(..) if ci == active => {
+                        let other = 1 - active;
+                        if chains[other].prepared {
+                            let tag = chains[other].tag;
+                            if !fading {
+                                chains[other].apply_volume(volume);
+                                let _ = chains[other].playbin.set_state(State::Playing);
+                            }
+                            chains[active].stop();
+                            active = other;
+                            fading = false;
+                            fade_pos = 0.0;
+                            chains[active].gain = 1.0;
+                            if let Some(f) = cb.lock().unwrap().as_ref() {
+                                f(Event::Ended { tag, gapless: true });
+                            }
+                        } else {
+                            chains[active].ended = true;
+                            if let Some(f) = cb.lock().unwrap().as_ref() {
+                                f(Event::Ended { tag: 0, gapless: false });
+                            }
                         }
                     }
+                    _ => {}
                 }
-                MessageView::Error(err) => {
-                    chains[0].stop();
-                    chains[1].stop();
-                    fading = false;
-                    let _ = app.emit("player-state", Status::default());
-                    if let Some(f) = cb.lock().unwrap().as_ref() {
-                        f(Event::Failed(err.error().to_string()));
-                    }
-                    break;
-                }
-                _ => {}
             }
         }
 

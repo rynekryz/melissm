@@ -56,9 +56,14 @@ export function subscribe(fn: (s: PlayerState) => void) {
   return () => bus.removeEventListener('change', handler);
 }
 
-export function playQueue(tracks: Track[], index: number) {
+export function playQueue(tracks: Track[], index: number, src?: string, cont?: string | null) {
   if (!isTauri) return;
-  void invoke('play_tracks', { tracks, index });
+  void invoke('play_tracks', { tracks, index, src: src ?? null, cont: cont ?? null });
+}
+
+export function playRadio(track: Track) {
+  if (!isTauri) return;
+  void invoke('play_radio', { track });
 }
 
 export function playAt(index: number) {

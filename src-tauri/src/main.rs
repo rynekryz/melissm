@@ -233,6 +233,26 @@ async fn start_index(app: AppHandle, i: usize, _gapless: bool) {
     preload_next(app.clone()).await;
 }
 
+async fn adopt_index(app: AppHandle, i: usize) {
+    let state = app.state::<AppState>();
+    let t = {
+        let mut q = state.queue.lock().unwrap();
+        let t = q.tracks.get(i).cloned();
+        if t.is_some() {
+            q.index = i as isize;
+            q.expected_next = None;
+            q.loading = false;
+        }
+        t
+    };
+    let Some(t) = t else { return };
+    emit_queue(&app);
+    update_now_playing(&app, &t);
+    state.store.history_push(&t);
+    update_artwork(app.clone(), t.clone());
+    preload_next(app.clone()).await;
+}
+
 async fn extend_radio(app: AppHandle) -> bool {
     let state = app.state::<AppState>();
     let (cur, id) = {
@@ -278,35 +298,67 @@ async fn advance(app: AppHandle, force: Option<usize>) {
             peek.or_else(|| None::<usize>)
         }
     };
+    let autoload = state.store.setting("autoload").as_deref() != Some("0");
     let next = match next {
-        Some(i) => i,
+        Some(i) => Some(i),
         None => {
-            let (last, repeat) = {
+            let (last, repeat, src) = {
                 let q = state.queue.lock().unwrap();
-                (cur as usize >= q.tracks.len().saturating_sub(1), q.repeat)
+                (cur as usize >= q.tracks.len().saturating_sub(1), q.repeat, q.source.clone())
             };
             if last && repeat == Repeat::Off {
-                if extend_radio(app.clone()).await {
-                    cur as usize + 1
-                } else {
-                    state.player.send(Cmd::Stop);
-                    {
-                        let mut info = state.info.lock().unwrap();
-                        info.playing = false;
+                if src.is_some() {
+                    if autoload && load_more_playlist(app.clone()).await {
+                        Some(cur as usize + 1)
+                    } else {
+                        None
                     }
-                    refresh_tray(&app);
-                    return;
+                } else if extend_radio(app.clone()).await {
+                    Some(cur as usize + 1)
+                } else {
+                    None
                 }
             } else {
-                return;
+                None
             }
         }
+    };
+    let Some(next) = next else {
+        state.player.send(Cmd::Stop);
+        {
+            let mut info = state.info.lock().unwrap();
+            info.playing = false;
+        }
+        refresh_tray(&app);
+        return;
     };
     if state.queue.lock().unwrap().shuffle && force.is_none() {
         let mut q = state.queue.lock().unwrap();
         q.prev.push(cur.max(0) as usize);
     }
     start_index(app.clone(), next, false).await;
+}
+
+async fn load_more_playlist(app: AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    let cont = state.queue.lock().unwrap().cont.clone();
+    let Some(token) = cont else { return false };
+    let (fresh, next) = match state.yt.album_more(&token).await {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    let mut q = state.queue.lock().unwrap();
+    let added: Vec<Track> = fresh
+        .into_iter()
+        .filter(|r| !q.tracks.iter().any(|t| t.id == r.id))
+        .take(50)
+        .collect();
+    let added_n = added.len();
+    q.tracks.extend(added);
+    q.cont = next;
+    drop(q);
+    emit_queue(&app);
+    added_n > 0
 }
 
 async fn handle_ended(app: AppHandle, tag: u64, gapless: bool) {
@@ -327,7 +379,7 @@ async fn handle_ended(app: AppHandle, tag: u64, gapless: bool) {
                     q.prev.push(cur.max(0) as usize);
                     q.expected_next = None;
                 }
-                start_index(app.clone(), i, true).await;
+                adopt_index(app.clone(), i).await;
                 return;
             }
         }
@@ -482,8 +534,18 @@ async fn home(state: State<'_, AppState>) -> Result<Vec<innertube::Section>, Str
 }
 
 #[tauri::command]
+async fn playlists_for_you(state: State<'_, AppState>, query: String) -> Result<Vec<innertube::Track>, String> {
+    state.yt.playlists(&query).await
+}
+
+#[tauri::command]
 async fn album(state: State<'_, AppState>, id: String) -> Result<innertube::AlbumPage, String> {
     state.yt.album(&id).await
+}
+
+#[tauri::command]
+async fn album_more(state: State<'_, AppState>, token: String) -> Result<(Vec<innertube::Track>, Option<String>), String> {
+    state.yt.album_more(&token).await
 }
 
 #[tauri::command]
@@ -497,7 +559,13 @@ fn get_queue(state: State<'_, AppState>) -> Snapshot {
 }
 
 #[tauri::command]
-async fn play_tracks(app: AppHandle, tracks: Vec<Track>, index: usize) -> Result<(), String> {
+async fn play_tracks(
+    app: AppHandle,
+    tracks: Vec<Track>,
+    index: usize,
+    src: Option<String>,
+    cont: Option<String>,
+) -> Result<(), String> {
     let state = app.state::<AppState>();
     if tracks.is_empty() {
         return Err("empty queue".into());
@@ -508,10 +576,31 @@ async fn play_tracks(app: AppHandle, tracks: Vec<Track>, index: usize) -> Result
         q.index = -1;
         q.prev.clear();
         q.expected_next = None;
+        q.source = src;
+        q.cont = cont;
     }
     state.player.send(Cmd::CancelPreload);
     emit_queue(&app);
     start_index(app.clone(), index, false).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn play_radio(app: AppHandle, track: Track) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    {
+        let mut q = state.queue.lock().unwrap();
+        q.tracks = vec![track];
+        q.index = -1;
+        q.prev.clear();
+        q.expected_next = None;
+        q.source = None;
+        q.cont = None;
+    }
+    state.player.send(Cmd::CancelPreload);
+    emit_queue(&app);
+    start_index(app.clone(), 0, false).await;
+    tauri::async_runtime::spawn(extend_radio(app.clone()));
     Ok(())
 }
 
@@ -580,7 +669,7 @@ fn set_quality(state: State<'_, AppState>, quality: String) {
 #[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
-    for key in ["volume", "speed", "pitch", "eq", "quality", "crossfade", "shuffle", "repeat", "autocache"] {
+    for key in ["volume", "speed", "pitch", "eq", "quality", "crossfade", "shuffle", "repeat", "autocache", "autoload"] {
         m.insert(key.to_string(), state.store.setting(key).unwrap_or_default());
     }
     m
@@ -622,6 +711,11 @@ fn set_crossfade(state: State<'_, AppState>, seconds: u32) {
 #[tauri::command]
 fn set_autocache(state: State<'_, AppState>, enabled: bool) {
     state.store.set_setting("autocache", if enabled { "1" } else { "0" });
+}
+
+#[tauri::command]
+fn set_autoload(state: State<'_, AppState>, enabled: bool) {
+    state.store.set_setting("autoload", if enabled { "1" } else { "0" });
 }
 
 #[tauri::command]
@@ -958,9 +1052,10 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            search, home, album, artist, get_queue, play_tracks, play_at, skip_next, skip_prev_cmd,
+            search, home, playlists_for_you, album, album_more, artist, get_queue, play_tracks, play_radio, play_at,
+            skip_next, skip_prev_cmd,
             toggle_play_cmd, pause, resume, seek, volume, toggle_shuffle_cmd, cycle_repeat_cmd,
-            set_quality, get_settings, set_speed, set_pitch, set_eq, set_crossfade, set_autocache,
+            set_quality, get_settings, set_speed, set_pitch, set_eq, set_crossfade, set_autocache, set_autoload,
             cache_info, cache_clear, add_to_queue, remove_from_queue, move_in_queue, clear_upcoming,
             likes_list, like_toggle, likes_clear, history_list, history_remove, history_clear,
             store_import, playlists_list, playlist_create, playlist_rename, playlist_delete,

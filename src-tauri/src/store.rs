@@ -3,12 +3,13 @@ use crate::innertube::Track;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 
 pub struct Store {
     conn: Mutex<Connection>,
     dirty: AtomicBool,
+    last_ts: AtomicI64,
     work: PathBuf,
 }
 
@@ -75,7 +76,7 @@ impl Store {
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);",
         )
         .expect("init store");
-        Self { conn: Mutex::new(conn), dirty: AtomicBool::new(false), work }
+        Self { conn: Mutex::new(conn), dirty: AtomicBool::new(false), last_ts: AtomicI64::new(0), work }
     }
 
     pub fn touch(&self) {
@@ -171,13 +172,20 @@ impl Store {
     }
 
     pub fn history_push(&self, t: &Track) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+        let mut prev = self.last_ts.load(Ordering::SeqCst);
+        let mut ts = now.max(prev + 1);
+        while let Err(cur) = self.last_ts.compare_exchange(prev, ts, Ordering::SeqCst, Ordering::SeqCst) {
+            prev = cur;
+            ts = now.max(prev + 1);
+        }
         let conn = self.conn.lock().unwrap();
         let _ = conn.execute("DELETE FROM history WHERE id = ?", params![t.id]);
         let _ = conn.execute(
             "INSERT OR REPLACE INTO history(played_at, id, title, artist, album, duration, thumbnail, artist_id, is_album)
              VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64,
+                ts,
                 t.id, t.title, t.artist, t.album, t.duration, t.thumbnail, t.artist_id, t.is_album as i64
             ],
         );

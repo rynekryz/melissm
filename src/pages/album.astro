@@ -10,7 +10,7 @@ import Layout from '../layouts/Layout.astro';
   <p id="status" class="text-on-surface-variant"></p>
 </Layout>
 <script>
-  import { album } from '../lib/api';
+  import { album, albumMore } from '../lib/api';
   import { playQueue } from '../lib/player';
   import { esc, renderTracks } from '../lib/ui';
 
@@ -20,6 +20,7 @@ import Layout from '../layouts/Layout.astro';
     const head = document.getElementById('head')!;
     const list = document.getElementById('tracks')!;
     const status = document.getElementById('status')!;
+    const wrap = list.parentElement!;
     try {
       const page = await album(id);
       document.title = `${page.title} · Melissm`;
@@ -33,13 +34,60 @@ import Layout from '../layouts/Layout.astro';
             <button id="play-shuffle" class="press flex h-14 items-center gap-2 rounded-full bg-surface-container-high px-6 font-medium"><span class="ms">shuffle</span>Shuffle</button>
           </div>
         </div>`;
-      document.getElementById('play-all')!.onclick = () => page.tracks.length && playQueue(page.tracks, 0);
-      document.getElementById('play-shuffle')!.onclick = () => {
-        if (!page.tracks.length) return;
-        const i = Math.floor(Math.random() * page.tracks.length);
-        playQueue(page.tracks, i);
+      let tracks = [...page.tracks];
+      let cont = page.next;
+      const draw = () => renderTracks(list, tracks);
+      const drawMore = () => {
+        let btn = document.getElementById('load-more');
+        if (!cont) {
+          btn?.remove();
+          return;
+        }
+        if (!btn) {
+          btn = document.createElement('button');
+          btn.id = 'load-more';
+          btn.className = 'press mt-6 flex h-14 items-center gap-2 rounded-full bg-surface-container-high px-6 font-medium';
+          btn.innerHTML = '<span class="ms">add</span>Load more';
+          btn.onclick = () => void loadMore();
+          wrap.insertBefore(btn, list.nextSibling);
+        }
+        btn.textContent = '';
+        btn.innerHTML = '<span class="ms">add</span>Load more';
       };
-      renderTracks(list, page.tracks);
+      const loadMore = async () => {
+        if (!cont) return;
+        const token = cont;
+        cont = null;
+        const btn = document.getElementById('load-more');
+        if (btn) btn.innerHTML = '<span class="ms">hourglass_empty</span>Loading…';
+        try {
+          const [more, next] = await albumMore(token);
+          const seen = new Set(tracks.map((t) => t.id));
+          tracks = tracks.concat(more.filter((t) => !seen.has(t.id)));
+          cont = next;
+          draw();
+        } catch {
+          cont = token;
+        }
+        drawMore();
+      };
+      document.getElementById('play-all')!.onclick = () => tracks.length && playQueue(tracks, 0, page.next ? id : null, page.next);
+      document.getElementById('play-shuffle')!.onclick = () => {
+        if (!tracks.length) return;
+        const i = Math.floor(Math.random() * tracks.length);
+        playQueue(tracks, i, page.next ? id : null, page.next);
+      };
+      draw();
+      drawMore();
+      if (cont) {
+        const sentinel = document.createElement('div');
+        sentinel.className = 'h-2';
+        wrap.appendChild(sentinel);
+        const io = new IntersectionObserver((es) => {
+          if (es.some((e) => e.isIntersecting)) void loadMore();
+        });
+        io.observe(sentinel);
+      }
     } catch (e) {
       status.textContent = `Could not load this one: ${e}`;
     }

@@ -29,7 +29,7 @@ import Layout from '../layouts/Layout.astro';
         const tracks = await search(q);
         if (id !== seq) return;
         status.textContent = tracks.length ? '' : 'No songs found. Try a different search.';
-        renderTracks(results, tracks);
+        renderTracks(results, tracks, { radio: true });
       } catch (e) {
         status.textContent = `Search failed: ${e}`;
       }

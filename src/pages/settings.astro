@@ -161,6 +161,13 @@ import Layout from '../layouts/Layout.astro';
       </div>
       <button id="cache-toggle" class="switch" data-on="true"><span class="knob"></span></button>
     </div>
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="font-medium">Auto load playlists</p>
+        <p class="text-sm text-on-surface-variant">Long playlists keep loading more songs as the queue runs out.</p>
+      </div>
+      <button id="autoload-toggle" class="switch" data-on="true"><span class="knob"></span></button>
+    </div>
     <div class="flex flex-wrap gap-3">
       <button id="clear-recent" class="chip">Clear listening history</button>
       <button id="clear-likes" class="chip">Clear liked songs</button>
@@ -172,7 +179,7 @@ import Layout from '../layouts/Layout.astro';
 </Layout>
 <script>
   import { loadOpts, saveOpts, pushTheme, applyScaleSoon, type ThemeOpts } from '../lib/theme';
-  import { cacheClear, cacheInfo, getSettings, setAutocache, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
+  import { cacheClear, cacheInfo, getSettings, setAutocache, setAutoload, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
   import { getQuality, getVolume, setVolume, setQuality, setCrossfade, type Quality } from '../lib/player';
   import { clearLikes, clearHistory } from '../lib/library';
 
@@ -196,6 +203,7 @@ import Layout from '../layouts/Layout.astro';
     const fadeInput = document.getElementById('fade-input') as HTMLInputElement;
     const fadeLabel = document.getElementById('fade-label')!;
     const cacheToggle = document.getElementById('cache-toggle')!;
+    const autoloadToggle = document.getElementById('autoload-toggle')!;
     const cacheStatus = document.getElementById('cache-status')!;
     const qualityGroup = document.getElementById('quality-group')!;
     const speedSlider = document.getElementById('speed-slider')!;
@@ -343,14 +351,19 @@ import Layout from '../layouts/Layout.astro';
       }
     };
     const cacheOn = getSettings().then((s) => {
-      const on = s.autocache !== '0';
-      cacheToggle.dataset.on = String(on);
-      return on;
+      cacheToggle.dataset.on = String(s.autocache !== '0');
+      autoloadToggle.dataset.on = String(s.autoload !== '0');
+      return s.autocache !== '0';
     });
     cacheToggle.addEventListener('click', async () => {
       const on = (cacheToggle.dataset.on ?? 'true') !== 'true';
       cacheToggle.dataset.on = String(on);
       void setAutocache(on);
+    });
+    autoloadToggle.addEventListener('click', () => {
+      const on = (autoloadToggle.dataset.on ?? 'true') !== 'true';
+      autoloadToggle.dataset.on = String(on);
+      void setAutoload(on);
     });
     document.getElementById('clear-cache')!.addEventListener('click', async () => {
       await cacheClear();

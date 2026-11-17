@@ -1,6 +1,6 @@
 import { navigate } from 'astro:transitions/client';
-import { addToQueue, current, playQueue, subscribe, type Track } from './player';
-import { isLiked, toggleLike } from './library';
+import { addToQueue, current, playQueue, playRadio, subscribe, type Track } from './player';
+import { addToPlaylist, createPlaylist, getPlaylists, isLiked, toggleLike } from './library';
 
 export const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -18,7 +18,9 @@ const markActive = () => {
 };
 if (typeof document !== 'undefined') subscribe(markActive);
 
-export function renderTracks(el: HTMLElement, tracks: Track[], opts: { onUnlike?: () => void; onRemove?: (t: Track) => void } = {}) {
+export type TrackOpts = { onUnlike?: () => void; onRemove?: (t: Track) => void; radio?: boolean };
+
+export function renderTracks(el: HTMLElement, tracks: Track[], opts: TrackOpts = {}) {
   if (!tracks.length) {
     el.innerHTML = '<p class="px-2 py-6 text-on-surface-variant">Nothing here yet.</p>';
     return;
@@ -30,6 +32,7 @@ export function renderTracks(el: HTMLElement, tracks: Track[], opts: { onUnlike?
         <div class="min-w-0 flex-1"><div class="truncate font-medium">${esc(t.title)}</div><div class="truncate text-sm opacity-70">${t.artist_id && !t.is_album ? `<span data-artist class="cursor-pointer hover:underline">${esc(t.artist)}</span>` : esc(t.artist)}${t.album && !t.is_album ? ' • ' + esc(t.album) : ''}</div></div>
         <button data-next class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Play next"><span class="ms text-on-surface-variant">playlist_play</span></button>
         <button data-add class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Add to queue"><span class="ms text-on-surface-variant">playlist_add</span></button>
+        <button data-pl class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Add to playlist"><span class="ms text-on-surface-variant">library_add</span></button>
         <button data-like class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Like"><span class="ms ${isLiked(t.id) ? 'fill text-primary' : ''}">favorite</span></button>
         <span class="w-12 text-right text-sm opacity-70">${t.duration ? fmt(t.duration) : ''}</span>
         ${opts.onRemove ? '<button data-remove class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Remove"><span class="ms text-on-surface-variant">delete</span></button>' : ''}
@@ -56,6 +59,12 @@ export function renderTracks(el: HTMLElement, tracks: Track[], opts: { onUnlike?
       addToQueue(track, false);
       return;
     }
+    const pl = target.closest<HTMLElement>('[data-pl]');
+    if (pl) {
+      e.stopPropagation();
+      openPlaylistMenu(pl, track);
+      return;
+    }
     const like = target.closest('[data-like]');
     if (like) {
       void toggleLike(track).then((liked) => {
@@ -69,9 +78,47 @@ export function renderTracks(el: HTMLElement, tracks: Track[], opts: { onUnlike?
       opts.onRemove?.(track);
       return;
     }
-    playQueue(tracks, +row.dataset.i!);
+    if (opts.radio) playRadio(track);
+    else playQueue(tracks, +row.dataset.i!);
   };
   markActive();
+}
+
+let plMenu: HTMLElement | null = null;
+const closeMenu = () => {
+  plMenu?.remove();
+  plMenu = null;
+};
+
+function openPlaylistMenu(anchor: HTMLElement, track: Track) {
+  closeMenu();
+  const lists = getPlaylists();
+  plMenu = document.createElement('div');
+  plMenu.className = 'plmenu';
+  plMenu.innerHTML =
+    lists.map((p) => `<button data-pid="${p.id}">${esc(p.name)}</button>`).join('') +
+    '<button data-new><span class="ms">add</span>New playlist</button>';
+  document.body.appendChild(plMenu);
+  const r = anchor.getBoundingClientRect();
+  const m = plMenu;
+  m.style.top = `${Math.min(window.innerHeight - m.offsetHeight - 8, r.bottom + 6)}px`;
+  m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
+  m.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const b = (e.target as HTMLElement).closest<HTMLElement>('button');
+    if (!b) return;
+    closeMenu();
+    if (b.dataset.new) {
+      const name = window.prompt('New playlist name');
+      if (name?.trim()) {
+        const id = await createPlaylist(name);
+        if (id) await addToPlaylist(id, track);
+      }
+    } else {
+      await addToPlaylist(+b.dataset.pid!, track);
+    }
+  });
+  setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
 }
 
 export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: boolean } = {}) {

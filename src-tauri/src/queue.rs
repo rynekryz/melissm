@@ -28,6 +28,8 @@ pub struct QueueState {
     pub prev: Vec<usize>,
     pub expected_next: Option<(u64, usize)>,
     pub loading: bool,
+    pub source: Option<String>,
+    pub cont: Option<String>,
 }
 
 impl Default for QueueState {
@@ -40,6 +42,8 @@ impl Default for QueueState {
             prev: Vec::new(),
             expected_next: None,
             loading: false,
+            source: None,
+            cont: None,
         }
     }
 }

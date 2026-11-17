@@ -8,8 +8,11 @@ export type ThemeSource = { wallpaper: null } | { artwork: null } | { color: str
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 export const search = (query: string) => invoke<Track[]>('search', { query });
+export const playlistsForYou = (query: string) => invoke<Track[]>('playlists_for_you', { query });
 export const home = () => invoke<Section[]>('home');
 export const album = (id: string) => invoke<AlbumPage>('album', { id });
+export const albumMore = (token: string) => invoke<[Track[], string | null]>('album_more', { token });
+export const setAutoload = (enabled: boolean) => invoke('set_autoload', { enabled });
 export const artist = (id: string) => invoke<ArtistPage>('artist', { id });
 export const lyrics = (t: Track) =>
   invoke<Lyrics>('lyrics', { title: t.title, artist: t.artist, album: t.album, duration: t.duration });
