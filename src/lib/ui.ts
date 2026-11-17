@@ -29,7 +29,7 @@ export function renderTracks(el: HTMLElement, tracks: Track[], opts: TrackOpts =
     .map(
       (t, i) => `<div class="track" data-i="${i}" data-id="${t.id}">
         ${art(t, 'size-14 rounded-2xl shrink-0')}
-        <div class="min-w-0 flex-1"><div class="truncate font-medium">${esc(t.title)}</div><div class="truncate text-sm opacity-70">${t.artist_id && !t.is_album ? `<span data-artist class="cursor-pointer hover:underline">${esc(t.artist)}</span>` : esc(t.artist)}${t.album && !t.is_album ? ' • ' + esc(t.album) : ''}</div></div>
+        <div class="min-w-0 flex-1"><div class="truncate font-medium">${esc(t.title)}</div><div class="truncate text-sm opacity-70">${t.artist_id && !t.is_album ? `<span data-artist class="cursor-pointer py-2 hover:font-semibold">${esc(t.artist)}</span>` : esc(t.artist)}${t.album && !t.is_album ? ' • ' + esc(t.album) : ''}</div></div>
         <button data-next class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Play next"><span class="ms text-on-surface-variant">playlist_play</span></button>
         <button data-add class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Add to queue"><span class="ms text-on-surface-variant">playlist_add</span></button>
         <button data-pl class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Add to playlist"><span class="ms text-on-surface-variant">library_add</span></button>
@@ -159,7 +159,7 @@ export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: bool
           <span class="absolute bottom-2 right-2 grid size-10 place-items-center rounded-full bg-primary/90 text-on-primary opacity-0 transition-opacity duration-300 group-hover:opacity-100"><span class="ms fill">${t.is_album || t.is_playlist || t.is_artist ? 'arrow_forward' : 'play_arrow'}</span></span>
         </div>
         <div class="mt-3 truncate px-2 font-medium">${esc(t.title)}</div>
-        <div class="truncate px-2 text-sm text-on-surface-variant">${t.artist_id && t.artist ? `<span data-artist class="cursor-pointer hover:underline">${esc(t.artist)}</span>` : esc(t.artist || (t.is_album ? 'Album' : t.is_playlist ? 'Playlist' : t.is_artist ? 'Artist' : ''))}</div>
+        <div class="truncate px-2 text-sm text-on-surface-variant">${t.artist_id && t.artist ? `<span data-artist class="cursor-pointer py-2 hover:font-semibold">${esc(t.artist)}</span>` : esc(t.artist || (t.is_album ? 'Album' : t.is_playlist ? 'Playlist' : t.is_artist ? 'Artist' : ''))}</div>
       </div>`,
     )
     .join('');

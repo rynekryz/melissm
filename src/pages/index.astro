@@ -20,11 +20,12 @@ import Layout from '../layouts/Layout.astro';
 </Layout>
 <script>
   import { home, playlistsForYou } from '../lib/api';
-  import { getHistory, subscribe } from '../lib/library';
+  import { getHistory, initLibrary, subscribe } from '../lib/library';
   import { renderCards } from '../lib/ui';
   import type { Track } from '../lib/player';
 
   document.addEventListener('astro:page-load', async () => {
+    await initLibrary();
     const sectionsEl = document.getElementById('sections')!;
     const greeting = document.getElementById('greeting')!;
     const greetSub = document.getElementById('greet-sub')!;

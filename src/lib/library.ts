@@ -27,30 +27,36 @@ export function subscribe(fn: () => void) {
   return () => bus.removeEventListener('change', handler);
 }
 
-export async function initLibrary() {
-  if (!isTauri) return;
-  likes = await likesList();
-  history = await historyList();
-  playlists = await playlistsList();
-  if (!likes.length && !history.length) {
-    const read = (key: string): Track[] => {
-      try {
-        return JSON.parse(localStorage.getItem(key) ?? '[]');
-      } catch {
-        return [];
+let initPromise: Promise<void> | null = null;
+
+export function initLibrary(): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    likes = await likesList();
+    history = await historyList();
+    playlists = await playlistsList();
+    if (!likes.length && !history.length) {
+      const read = (key: string): Track[] => {
+        try {
+          return JSON.parse(localStorage.getItem(key) ?? '[]');
+        } catch {
+          return [];
+        }
+      };
+      const oldLikes = read('melissm.likes');
+      const oldRecent = read('melissm.recent');
+      if (oldLikes.length || oldRecent.length) {
+        await storeImport(oldLikes, oldRecent);
+        localStorage.removeItem('melissm.likes');
+        localStorage.removeItem('melissm.recent');
+        likes = await likesList();
+        history = await historyList();
       }
-    };
-    const oldLikes = read('melissm.likes');
-    const oldRecent = read('melissm.recent');
-    if (oldLikes.length || oldRecent.length) {
-      await storeImport(oldLikes, oldRecent);
-      localStorage.removeItem('melissm.likes');
-      localStorage.removeItem('melissm.recent');
-      likes = await likesList();
-      history = await historyList();
     }
-  }
-  emit();
+    emit();
+  })();
+  return initPromise;
 }
 
 export const getLikes = () => likes;

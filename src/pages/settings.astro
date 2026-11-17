@@ -197,13 +197,21 @@ import Layout from '../layouts/Layout.astro';
     </div>
     <p id="cache-status" class="mt-4 text-sm text-on-surface-variant"></p>
   </section>
+
+  <div class="fixed right-8 top-1/2 z-10 hidden -translate-y-1/2 xl:block">
+    <div class="rounded-[28px] bg-surface-container p-3 shadow-xl shadow-black/30">
+      <p id="snake-score" class="mb-2 hidden text-center text-sm font-medium tabular-nums">Score 0</p>
+      <canvas id="snake-canvas" width="280" height="360" class="block cursor-pointer rounded-[20px]"></canvas>
+    </div>
+  </div>
 </Layout>
 <script>
   import { loadOpts, saveOpts, pushTheme, applyScaleSoon, type ThemeOpts } from '../lib/theme';
   import { cacheClear, cacheInfo, getSettings, lyricsSetOffset, lyricsSetProvider, setAutocache, setAutoload, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
   import { getQuality, getVolume, setVolume, setQuality, setCrossfade, type Quality } from '../lib/player';
   import { clearLikes, clearHistory } from '../lib/library';
-  import { confirmDialog } from '../lib/ui';
+  import { confirmDialog, esc } from '../lib/ui';
+  import { mountSnake } from '../lib/games';
 
   document.addEventListener('astro:page-load', () => {
     const status = document.getElementById('theme-status')!;
@@ -422,6 +430,10 @@ import Layout from '../layouts/Layout.astro';
         return;
       }
       const cur = colorInput.value || '#7c4dff';
+      if (!(opts.source as { color?: string }).color) {
+        opts.source = { color: cur };
+        void commit();
+      }
       pickerEl = document.createElement('div');
       pickerEl.className = 'fixed z-[75] w-72 rounded-[28px] bg-surface-container-high p-5 shadow-2xl shadow-black/50';
       pickerEl.innerHTML = `<p class="mb-3 text-base font-medium">Pick a color</p>
@@ -578,5 +590,11 @@ import Layout from '../layouts/Layout.astro';
         paint();
       })
       .catch(() => {});
+
+    const stopGame = mountSnake(
+      document.getElementById('snake-canvas') as HTMLCanvasElement,
+      document.getElementById('snake-score')!,
+    );
+    window.addEventListener('astro:before-swap', stopGame, { once: true });
   });
 </script>
