@@ -175,7 +175,7 @@ fn parse_list_item(r: &Value) -> Option<Track> {
     let artist_id = runs(1).and_then(|rs| rs.get(0)).and_then(|run| {
         run.pointer("/navigationEndpoint/browseEndpoint/browseId")
             .and_then(Value::as_str)
-            .filter(|id| id.starts_with("MP") && !id.starts_with("MPREb"))
+            .filter(|id| id.starts_with("UC") || (id.starts_with("MP") && !id.starts_with("MPREb")))
             .map(|s| s.to_string())
     });
     Some(Track {
@@ -207,7 +207,7 @@ pub fn parse_two_row(r: &Value) -> Option<Track> {
         .and_then(|rs| rs.iter().find_map(|run| {
             run.pointer("/navigationEndpoint/browseEndpoint/browseId")
                 .and_then(Value::as_str)
-                .filter(|id| id.starts_with("MP") && !id.starts_with("MPREb"))
+                .filter(|id| id.starts_with("UC") || (id.starts_with("MP") && !id.starts_with("MPREb")))
                 .map(|s| s.to_string())
         }));
     let browse = r

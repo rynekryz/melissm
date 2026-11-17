@@ -159,7 +159,7 @@ export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: bool
           <span class="absolute bottom-2 right-2 grid size-10 place-items-center rounded-full bg-primary/90 text-on-primary opacity-0 transition-opacity duration-300 group-hover:opacity-100"><span class="ms fill">${t.is_album || t.is_playlist || t.is_artist ? 'arrow_forward' : 'play_arrow'}</span></span>
         </div>
         <div class="mt-3 truncate px-2 font-medium">${esc(t.title)}</div>
-        <div class="truncate px-2 text-sm text-on-surface-variant">${esc(t.artist || (t.is_album ? 'Album' : t.is_playlist ? 'Playlist' : t.is_artist ? 'Artist' : ''))}</div>
+        <div class="truncate px-2 text-sm text-on-surface-variant">${t.artist_id && t.artist ? `<span data-artist class="cursor-pointer hover:underline">${esc(t.artist)}</span>` : esc(t.artist || (t.is_album ? 'Album' : t.is_playlist ? 'Playlist' : t.is_artist ? 'Artist' : ''))}</div>
       </div>`,
     )
     .join('');
@@ -167,6 +167,7 @@ export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: bool
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-i]');
     if (!row) return;
     const t = tracks[+row.dataset.i!];
+    if ((e.target as HTMLElement).closest('[data-artist]') && t.artist_id) return navigate(`/artist?id=${t.artist_id}`);
     if (t.is_artist) return navigate(`/artist?id=${t.id}`);
     if (t.is_album || t.is_playlist) return navigate(`/album?id=${t.id}`);
     playQueue(tracks, +row.dataset.i!);

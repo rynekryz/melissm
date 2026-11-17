@@ -36,10 +36,11 @@ import Layout from '../layouts/Layout.astro';
     <div class="mb-3 flex flex-wrap items-center gap-2">
       <button data-source="wallpaper" id="source-wallpaper" class="chip">Wallpaper</button>
       <button data-source="artwork" id="source-artwork" class="chip">Dynamic</button>
-      <label id="source-color-chip" class="chip cursor-pointer flex items-center gap-2">
+      <button id="source-color-chip" class="chip flex cursor-pointer items-center gap-2">
+        <span id="source-swatch" class="size-4 shrink-0 rounded-full ring-1 ring-outline-variant" style="background: var(--md-sys-color-primary)"></span>
         <span>Custom color</span>
-        <input id="source-color" type="color" value="#7c4dff" class="size-6 rounded-full bg-transparent outline-none" />
-      </label>
+      </button>
+      <input id="source-color" type="color" class="hidden" tabindex="-1" aria-hidden="true" />
     </div>
     <p class="mb-2 mt-5 text-sm text-on-surface-variant">Color changes</p>
     <div class="mb-3 flex flex-wrap items-center gap-4">
@@ -240,9 +241,9 @@ import Layout from '../layouts/Layout.astro';
     const lyrOffsetSlider = document.getElementById('lyr-offset-slider')!;
     const lyrOffsetInput = document.getElementById('lyr-offset-input') as HTMLInputElement;
     const lyrOffsetLabel = document.getElementById('lyr-offset-label')!;
+    const swatch = document.getElementById('source-swatch')!;
 
     let opts: ThemeOpts = loadOpts();
-    let colorCache = opts.source.color ?? '#7c4dff';
     let dyn = 90;
 
     const EQ_KEY = 'melissm.eq';
@@ -290,7 +291,9 @@ import Layout from '../layouts/Layout.astro';
       sourceWallpaper.classList.toggle('on', source === 'wallpaper');
       sourceArtwork.classList.toggle('on', source === 'artwork');
       sourceColorChip.classList.toggle('on', source === 'color');
-      colorInput.value = opts.source.color ?? colorCache;
+      const hex = opts.source.color ?? localStorage.getItem('melissm.custom-color') ?? '';
+      colorInput.value = hex || '#7c4dff';
+      swatch.style.background = source === 'color' ? colorInput.value : 'var(--md-sys-color-primary)';
       animToggle.classList.toggle('on', localStorage.getItem('melissm.anim') !== '0');
       const fade = parseInt(localStorage.getItem('melissm.crossfade') ?? '0', 10) || 0;
       fadeInput.value = String(fade);
@@ -400,9 +403,58 @@ import Layout from '../layouts/Layout.astro';
       status.textContent = 'Downloaded songs cleared.';
     });
     colorInput.addEventListener('input', () => {
-      colorCache = colorInput.value;
       opts.source = { color: colorInput.value };
       void commit();
+    });
+    const SWATCHES = [
+      '#e57373', '#f06292', '#ba68c8', '#9c27b0', '#7e57c2', '#5c6bc0',
+      '#42a5f5', '#29b6f6', '#26a69a', '#66bb6a', '#9ccc65', '#d4e157',
+      '#ffca28', '#ffa726', '#ff7043', '#a1887f', '#90a4ae', '#78909c',
+    ];
+    let pickerEl: HTMLElement | null = null;
+    const closePicker = () => {
+      pickerEl?.remove();
+      pickerEl = null;
+    };
+    sourceColorChip.addEventListener('click', () => {
+      if (pickerEl) {
+        closePicker();
+        return;
+      }
+      const cur = colorInput.value || '#7c4dff';
+      pickerEl = document.createElement('div');
+      pickerEl.className = 'fixed z-[75] w-72 rounded-[28px] bg-surface-container-high p-5 shadow-2xl shadow-black/50';
+      pickerEl.innerHTML = `<p class="mb-3 text-base font-medium">Pick a color</p>
+        <div class="grid grid-cols-6 gap-2">${SWATCHES.map((c) => `<button data-hex="${c}" class="press size-9 rounded-full ring-1 ring-outline-variant" style="background:${c}" aria-label="${c}"></button>`).join('')}</div>
+        <div class="mt-4 flex items-center gap-2">
+          <input data-hexin type="text" value="${esc(cur)}" placeholder="#7c4dff" spellcheck="false" class="h-11 min-w-0 flex-1 rounded-full bg-surface-container-highest px-4 text-sm outline-none" />
+          <button data-apply class="press h-11 rounded-full bg-primary px-4 text-sm font-medium text-on-primary">Apply</button>
+        </div>`;
+      document.body.appendChild(pickerEl);
+      const r = sourceColorChip.getBoundingClientRect();
+      pickerEl.style.top = `${r.bottom + 8}px`;
+      pickerEl.style.left = `${Math.max(8, Math.min(window.innerWidth - pickerEl.offsetWidth - 8, r.right - pickerEl.offsetWidth))}px`;
+      const apply = (hex: string) => {
+        hex = hex.trim().replace(/^#*/, '');
+        if (!/^[0-9a-fA-F]{6}$/.test(hex)) return;
+        localStorage.setItem('melissm.custom-color', hex);
+        closePicker();
+        colorInput.value = `#${hex}`;
+        colorInput.dispatchEvent(new Event('input'));
+      };
+      pickerEl.querySelectorAll<HTMLButtonElement>('[data-hex]').forEach((b) => b.addEventListener('click', () => apply(b.dataset.hex!)));
+      const hexIn = pickerEl.querySelector<HTMLInputElement>('[data-hexin]')!;
+      pickerEl.querySelector('[data-apply]')!.addEventListener('click', () => apply(hexIn.value));
+      hexIn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') apply(hexIn.value);
+      });
+      setTimeout(
+        () =>
+          document.addEventListener('click', (e) => {
+            if (!pickerEl?.contains(e.target as Node)) closePicker();
+          }),
+        0,
+      );
     });
     blurToggle.addEventListener('click', () => {
       opts.blur = !opts.blur;
@@ -502,6 +554,7 @@ import Layout from '../layouts/Layout.astro';
       localStorage.setItem('melissm.lyrics_offset', String(off));
       void lyricsSetOffset(off);
       paintLyrOffset();
+      window.dispatchEvent(new Event('melissm:lyr-offset'));
     };
     lyrOffsetInput.addEventListener('input', () => commitLyrOffset(+lyrOffsetInput.value));
     document.getElementById('lyr-offset-reset')!.addEventListener('click', () => commitLyrOffset(0));

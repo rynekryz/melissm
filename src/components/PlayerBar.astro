@@ -41,7 +41,7 @@
     </div>
     <div class="min-w-0">
       <div id="p-title" class="truncate font-medium">Nothing playing</div>
-      <div id="p-artist" class="truncate text-sm text-on-surface-variant">Pick a song you like</div>
+      <div id="p-artist" class="cursor-pointer truncate text-sm text-on-surface-variant hover:underline">Pick a song you like</div>
     </div>
     <button id="p-like" class="press grid size-10 shrink-0 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Like"><span id="p-like-icon" class="ms">favorite</span></button>
   </div>
@@ -87,7 +87,7 @@
     </div>
     <div class="flex min-w-0 flex-col justify-center">
       <h1 id="fp-title" class="line-clamp-3 text-6xl font-semibold tracking-tight">Nothing playing</h1>
-      <p id="fp-artist" class="mt-3 text-2xl text-on-surface-variant">Pick a song you like</p>
+      <p id="fp-artist" class="mt-3 cursor-pointer text-2xl text-on-surface-variant hover:underline">Pick a song you like</p>
       <div class="mt-10 flex items-center gap-4">
         <span id="fp-pos" class="w-12 text-right text-sm tabular-nums text-on-surface-variant">0:00</span>
         <div id="fp-seek" class="xslider min-w-0 flex-1">
@@ -126,6 +126,7 @@
   import { isLiked, refreshHistory, toggleLike } from '../lib/library';
   import { lyrics, lyricsDeleteCustom, lyricsGetCustom, lyricsSaveCustom } from '../lib/api';
   import { esc, fmt } from '../lib/ui';
+  import { navigate } from 'astro:transitions/client';
 
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   const bar = $('player');
@@ -148,6 +149,7 @@
   let activeLine = -1;
   let isCustom = false;
   let fsOpen = false;
+  let lastSynced = '';
   const lycOffset = () => parseFloat(localStorage.getItem('melissm.lyrics_offset') ?? '0') || 0;
 
   const polar = (fn: (a: number) => number, steps = 220) => {
@@ -185,6 +187,12 @@
   let front = 'a';
   let songCount = 0;
   let lastTrackId = '';
+  let curArtistId: string | null = null;
+  const openArtist = () => {
+    if (curArtistId) navigate(`/artist?id=${curArtistId}`);
+  };
+  $('p-artist').onclick = openArtist;
+  $('fp-artist').onclick = openArtist;
 
   const parseLrc = (lrc: string) =>
     lrc
@@ -261,6 +269,7 @@
       const l = await lyrics(track);
       if (lyricsFor !== track.id) return;
       isCustom = l.custom;
+      lastSynced = l.synced ?? '';
       const off = lycOffset();
       $('ly-provider').textContent = l.custom ? 'Your lyrics' : `Lyrics from ${l.provider || 'LrcLib'}`;
       if (l.karaoke) {
@@ -374,6 +383,7 @@
     fsOpen = true;
     lyrFull.classList.add('open');
     lyrFull.setAttribute('aria-hidden', 'false');
+    panel.classList.add('translate-x-[115%]');
     loadLyrics();
   };
   const closeFsLyrics = () => {
@@ -385,21 +395,25 @@
   $('lf-close').onclick = closeFsLyrics;
   $('lf-edit').onclick = openEditor;
   $('ly-edit').onclick = openEditor;
+  window.addEventListener('melissm:lyr-offset', () => {
+    lyricsFor = '';
+    void loadLyrics();
+  });
   const editBack = () => $('ly-edit-back');
   let editorOpen = false;
   async function openEditor() {
     const track = current();
     if (!track || editorOpen) return;
     editorOpen = true;
-    const existing = isCustom ? await lyricsGetCustom(track.id) : null;
+    const existing = isCustom ? await lyricsGetCustom(track.id) : lastSynced;
     const back = document.createElement('div');
     back.id = 'ly-edit-back';
     back.className = 'fixed inset-0 z-[80] grid place-items-center bg-black/60 p-6 backdrop-blur-sm';
     back.innerHTML = `<div class="flex w-full max-w-xl flex-col rounded-[28px] bg-surface-container-high p-6 shadow-2xl shadow-black/50">
       <p class="mb-4 text-lg font-medium">Edit lyrics</p>
-      <textarea id="ly-edit-text" spellcheck="false" placeholder="Paste or type lyrics here. Use [mm:ss.xx] timestamps for synced lines, plain text works too." class="h-72 w-full resize-none rounded-2xl bg-surface-container-highest p-4 text-sm leading-relaxed outline-none">${existing ? esc(existing) : ''}</textarea>
+      <textarea id="ly-edit-text" spellcheck="false" placeholder="Plain text, or add [mm:ss.xx] for sync" class="h-72 w-full resize-none rounded-2xl bg-surface-container-highest p-4 text-sm leading-relaxed outline-none">${existing ? esc(existing) : ''}</textarea>
       <div class="mt-4 flex justify-end gap-2">
-        ${isCustom ? '<button data-del class="press h-12 rounded-full bg-error px-6 font-medium text-on-error">Delete</button>' : ''}
+        ${isCustom ? '<button data-reset class="press h-12 rounded-full bg-surface-container-highest px-6 font-medium">Reset</button>' : ''}
         <button data-cancel class="press h-12 rounded-full bg-surface-container-highest px-6 font-medium">Cancel</button>
         <button data-save class="press h-12 rounded-full bg-primary px-6 font-medium text-on-primary">Save</button>
       </div>
@@ -415,13 +429,14 @@
     });
     back.querySelector('[data-save]')!.addEventListener('click', async () => {
       const text = (back.querySelector('#ly-edit-text') as HTMLTextAreaElement).value;
-      await lyricsSaveCustom(track.id, text);
+      if (text.trim()) await lyricsSaveCustom(track.id, text);
+      else await lyricsDeleteCustom(track.id);
       lyricsFor = '';
       done();
       loadLyrics();
     });
-    const del = back.querySelector('[data-del]');
-    del?.addEventListener('click', async () => {
+    const reset = back.querySelector('[data-reset]');
+    reset?.addEventListener('click', async () => {
       await lyricsDeleteCustom(track.id);
       lyricsFor = '';
       done();
@@ -492,6 +507,7 @@
       }
       $('p-title').textContent = t.title;
       $('p-artist').textContent = t.artist || t.album || 'Unknown artist';
+      curArtistId = t.artist_id ?? null;
       $('p-like-icon').className = `ms ${isLiked(t.id) ? 'fill text-primary' : ''}`;
       $('fp-like-icon').className = `ms text-[26px] ${isLiked(t.id) ? 'fill text-primary' : ''}`;
       if (t.id !== lastTrackId) {
