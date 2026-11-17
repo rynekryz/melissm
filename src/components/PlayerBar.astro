@@ -28,7 +28,7 @@
   <button id="lf-edit" class="press absolute right-8 top-12 z-20 grid size-14 place-items-center rounded-full bg-surface-container/90 text-on-surface shadow-lg shadow-black/30 hover:bg-surface-container-highest" aria-label="Edit lyrics"><span class="ms">edit</span></button>
   <div class="lyr-fs-pop relative z-10 mx-auto flex h-full w-full max-w-[1000px] flex-col px-20 py-24">
     <p id="lf-title" class="mb-8 shrink-0 truncate text-2xl font-medium opacity-70">Nothing playing</p>
-    <div class="lyrics-mask min-h-0 flex-1 overflow-hidden">
+    <div class="lyrics-mask min-h-0 flex-1 overflow-y-auto">
       <div id="lf-body" class="space-y-8 pb-40 pt-24 text-3xl font-medium leading-snug"></div>
     </div>
   </div>
@@ -106,8 +106,8 @@
         <button id="fp-play" data-playing="false" class="press play-btn grid size-20 place-items-center bg-primary text-on-primary shadow-xl shadow-black/30" aria-label="Play or pause"><span id="fp-icon" class="ms fill text-[40px]">play_arrow</span></button>
         <button id="fp-next" class="press grid size-16 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Next"><span class="ms fill text-[30px]">skip_next</span></button>
         <button id="fp-repeat" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span id="fp-repeat-icon" class="ms text-[26px]">repeat</span></button>
-        <button id="fp-lyrics" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics"><span class="ms text-[26px]">lyrics</span></button>
         <button id="fp-queue" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue"><span class="ms text-[26px]">queue_music</span></button>
+        <button id="fp-lyrics" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics"><span class="ms text-[26px]">lyrics</span></button>
       </div>
       <div class="mt-8 flex w-72 items-center gap-3">
         <span class="ms text-on-surface-variant">volume_up</span>
@@ -125,7 +125,7 @@
 <script>
   import { current, cycleRepeat, next, onError, previous, playAt, removeFromQueue, moveInQueue, clearUpcoming, seek, setVolume, subscribe, toggle, toggleShuffle, type PlayerState } from '../lib/player';
   import { isLiked, refreshHistory, toggleLike } from '../lib/library';
-  import { lyrics, lyricsDeleteCustom, lyricsGetCustom, lyricsSaveCustom } from '../lib/api';
+  import { getSettings, isTauri, lyrics, lyricsDeleteCustom, lyricsGetCustom, lyricsSaveCustom } from '../lib/api';
   import { esc, fmt } from '../lib/ui';
   import { navigate } from 'astro:transitions/client';
 
@@ -147,11 +147,15 @@
   const fpVolInput = $<HTMLInputElement>('fp-vol-input');
   let lines: { t: number; text: string; words?: { w: string; s: number }[] }[] = [];
   let lyricsFor = '';
+  let lyricsGen = 0;
   let activeLine = -1;
   let isCustom = false;
   let fsOpen = false;
+  let panelClose = true;
   let lastSynced = '';
   const lycOffset = () => parseFloat(localStorage.getItem('melissm.lyrics_offset') ?? '0') || 0;
+  if (isTauri) void getSettings().then((s) => (panelClose = s.panel_close !== '0')).catch(() => {});
+  window.addEventListener('melissm:panel-close', (e) => (panelClose = (e as CustomEvent<boolean>).detail));
 
   const polar = (fn: (a: number) => number, steps = 220) => {
     let d = '';
@@ -249,11 +253,11 @@
     playAt(+row.dataset.i!);
   });
   $('q-clear').onclick = clearUpcoming;
-  const toggleQueue = () => {
-    const open = qPanel.classList.contains('-translate-x-[115%]');
+  const setQueue = (open: boolean) => {
     qPanel.classList.toggle('-translate-x-[115%]', !open);
     qPanel.classList.toggle('open', open);
   };
+  const toggleQueue = () => setQueue(qPanel.classList.contains('-translate-x-[115%]'));
   $('p-queue').onclick = toggleQueue;
   $('fp-queue').onclick = toggleQueue;
 
@@ -264,6 +268,7 @@
   async function loadLyrics() {
     const track = current();
     if (!track || lyricsFor === track.id) return;
+    const gen = ++lyricsGen;
     lyricsFor = track.id;
     lines = [];
     activeLine = -1;
@@ -272,7 +277,7 @@
     lfBody.innerHTML = '';
     try {
       const l = await lyrics(track);
-      if (lyricsFor !== track.id) return;
+      if (gen !== lyricsGen || lyricsFor !== track.id) return;
       isCustom = l.custom;
       lastSynced = l.synced ?? '';
       const off = lycOffset();
@@ -319,6 +324,12 @@
   const openFull = () => {
     full.classList.add('open');
     full.setAttribute('aria-hidden', 'false');
+    if (panelClose) {
+      panel.classList.add('translate-x-[115%]');
+      panel.classList.remove('open');
+      qPanel.classList.add('-translate-x-[115%]');
+      qPanel.classList.remove('open');
+    }
     loadLyrics();
   };
   const closeFull = () => {
@@ -376,10 +387,13 @@
     songCount++;
   };
 
-  const togglePanel = () => {
-    const open = panel.classList.contains('translate-x-[115%]');
+  const setPanel = (open: boolean) => {
     panel.classList.toggle('translate-x-[115%]', !open);
     panel.classList.toggle('open', open);
+  };
+  const togglePanel = () => {
+    const open = panel.classList.contains('translate-x-[115%]');
+    setPanel(open);
     if (open) loadLyrics();
   };
   $('p-lyrics').onclick = togglePanel;
@@ -388,7 +402,7 @@
     fsOpen = true;
     lyrFull.classList.add('open');
     lyrFull.setAttribute('aria-hidden', 'false');
-    panel.classList.add('translate-x-[115%]');
+    setPanel(false);
     loadLyrics();
   };
   const closeFsLyrics = () => {
@@ -567,7 +581,7 @@
     }
     renderQueue(s);
     syncFpControls(s.playing, s.shuffle, s.repeat);
-    if (has && !panel.classList.contains('translate-x-[115%]')) loadLyrics();
+    if (has && (fsOpen || !panel.classList.contains('translate-x-[115%]'))) loadLyrics();
     if (lines.length) {
       const i = lines.findLastIndex((l) => l.t <= s.position + 0.15);
       if (i !== activeLine) {

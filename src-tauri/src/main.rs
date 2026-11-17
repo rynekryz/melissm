@@ -671,7 +671,7 @@ fn get_settings(state: State<'_, AppState>) -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
     for key in [
         "volume", "speed", "pitch", "eq", "quality", "crossfade", "shuffle", "repeat", "autocache", "autoload",
-        "lyr_lrclib", "lyr_netease", "lyrics_offset",
+        "lyr_lrclib", "lyr_netease", "lyrics_offset", "panel_close",
     ] {
         m.insert(key.to_string(), state.store.setting(key).unwrap_or_default());
     }
@@ -915,6 +915,11 @@ fn lyrics_set_offset(state: State<'_, AppState>, offset: f64) {
 }
 
 #[tauri::command]
+fn set_panel_close(state: State<'_, AppState>, enabled: bool) {
+    state.store.set_setting("panel_close", if enabled { "1" } else { "0" });
+}
+
+#[tauri::command]
 async fn set_theme(opts: State<'_, SharedOpts>, theme: ThemeOpts) -> Result<BTreeMap<String, String>, String> {
     *opts.lock().unwrap() = theme;
     let snapshot = opts.lock().unwrap().clone();
@@ -1096,7 +1101,7 @@ fn main() {
             likes_list, like_toggle, likes_clear, history_list, history_remove, history_clear,
             store_import, playlists_list, playlist_create, playlist_rename, playlist_delete,
             playlist_tracks, playlist_add, playlist_remove, lyrics, lyrics_get_custom, lyrics_save_custom,
-            lyrics_delete_custom, lyrics_set_provider, lyrics_set_offset, set_theme, system_scale,
+            lyrics_delete_custom, lyrics_set_provider, lyrics_set_offset, set_panel_close, set_theme, system_scale,
             toggle_fullscreen
         ])
         .build(tauri::generate_context!())

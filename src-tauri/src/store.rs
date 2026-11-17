@@ -55,6 +55,7 @@ impl Store {
             state_dir()
         };
         let _ = fs::create_dir_all(&work);
+        let _ = fs::create_dir_all(state_dir());
         let db = work.join("store.db");
         if !db.is_file() {
             if let Some(blob) = crypto::open_file(&state_dir().join("vault.bin")) {
@@ -90,6 +91,7 @@ impl Store {
         let _ = fs::remove_file(&snap);
         if conn.execute("VACUUM INTO ?", params![snap.to_string_lossy()]).is_ok() {
             if let Ok(bytes) = fs::read(&snap) {
+                let _ = fs::create_dir_all(state_dir());
                 let _ = crypto::seal_file(&state_dir().join("vault.bin"), &bytes);
             }
             let _ = fs::remove_file(&snap);

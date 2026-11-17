@@ -90,15 +90,16 @@ img { -webkit-user-drag: none; user-drag: none; }
 .skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent), transparent); animation: shimmer 1.4s infinite; }
 @keyframes shimmer { to { transform: translateX(100%); } }
 
-.no-blur #player, .no-blur #lyrics-panel { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.no-blur #player, .no-blur #lyrics-panel, .no-blur #queue-panel { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .no-blur #player { background: var(--md-sys-color-surface-container-high); }
-.no-blur #lyrics-panel { background: var(--md-sys-color-surface-container-high); }
+.no-blur #lyrics-panel, .no-blur #queue-panel { background: var(--md-sys-color-surface-container-high); }
 
 .glass { background: color-mix(in srgb, var(--md-sys-color-primary-container) 14%, color-mix(in srgb, var(--md-sys-color-surface-container) 88%, transparent)); backdrop-filter: blur(44px) saturate(1.7); -webkit-backdrop-filter: blur(44px) saturate(1.7); }
 .lyrics-glass { background: color-mix(in srgb, var(--md-sys-color-primary-container) 14%, color-mix(in srgb, var(--md-sys-color-surface-container) 86%, transparent)); backdrop-filter: blur(48px) saturate(1.7); -webkit-backdrop-filter: blur(48px) saturate(1.7); }
 #lyrics-panel, #queue-panel { backdrop-filter: blur(0px) saturate(1); -webkit-backdrop-filter: blur(0px) saturate(1); transition: transform 0.5s var(--spring), backdrop-filter 0.5s, -webkit-backdrop-filter 0.5s; }
 #lyrics-panel.open, #queue-panel.open { backdrop-filter: blur(48px) saturate(1.7); -webkit-backdrop-filter: blur(48px) saturate(1.7); }
 .lyrics-mask { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent); }
+.lyrics-mask, #queue-list { overscroll-behavior: contain; }
 #player.empty { opacity: 0.85; }
 #player.empty:hover { opacity: 1; }
 
@@ -113,7 +114,7 @@ img { -webkit-user-drag: none; user-drag: none; }
 #p-full.open .fp-pop { transform: none; opacity: 1; }
 #p-full.open .fp-art { border-radius: 32px; }
 
-#lyr-full { position: fixed; inset: 0; z-index: 40; overflow: hidden; visibility: hidden; opacity: 0; pointer-events: none; background: var(--md-sys-color-surface-container-low); transition: opacity 0.4s, visibility 0.4s; }
+#lyr-full { position: fixed; inset: 0; z-index: 45; overflow: hidden; visibility: hidden; opacity: 0; pointer-events: none; background: var(--md-sys-color-surface-container-low); transition: opacity 0.4s, visibility 0.4s; }
 #lyr-full #lf-bg { filter: blur(0px) brightness(0.72); transition: filter 0.7s, opacity 0.7s; }
 #lyr-full.open #lf-bg { filter: blur(64px) brightness(0.72); }
 #lyr-full #lyr-frost { backdrop-filter: blur(0px) saturate(1); -webkit-backdrop-filter: blur(0px) saturate(1); transition: backdrop-filter 0.7s, -webkit-backdrop-filter 0.7s; }

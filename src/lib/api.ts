@@ -23,6 +23,7 @@ export const lyricsSaveCustom = (id: string, text: string) => invoke('lyrics_sav
 export const lyricsDeleteCustom = (id: string) => invoke('lyrics_delete_custom', { id });
 export const lyricsSetProvider = (provider: string, enabled: boolean) => invoke('lyrics_set_provider', { provider, enabled });
 export const lyricsSetOffset = (offset: number) => invoke('lyrics_set_offset', { offset });
+export const setPanelClose = (enabled: boolean) => invoke('set_panel_close', { enabled });
 export const setTheme = (theme: { mode: ThemeMode; scheme: string; source: ThemeSource }) =>
   invoke<Record<string, string>>('set_theme', { theme });
 export const systemScale = () => invoke<number>('system_scale');

@@ -2,7 +2,6 @@ type Pt = { x: number; y: number };
 
 const cssVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const palette = () => ({
-  bg: cssVar('--md-sys-color-surface-container-high'),
   dot: cssVar('--md-sys-color-on-surface'),
   primary: cssVar('--md-sys-color-primary'),
   onPrimary: cssVar('--md-sys-color-on-primary'),
@@ -21,12 +20,38 @@ const keyDirs: Record<string, Pt> = {
 };
 
 const PITCH = 10;
-const DOT = 6.5;
+const DOT = 8;
 const SUB = 3;
 const CELL = PITCH * SUB;
 
-export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
+function makeCtx(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext('2d')!;
+  const paintDot = (px: number, py: number, color: string, alpha: number) => {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(px - DOT / 2, py - DOT / 2, DOT, DOT, 2.5);
+    else ctx.rect(px - DOT / 2, py - DOT / 2, DOT, DOT);
+    ctx.fill();
+  };
+  const dots = (fn: (x: number, y: number) => void) => {
+    for (let gx = 0; gx < COLS_ALL; gx++) for (let gy = 0; gy < ROWS_ALL; gy++) fn(gx * PITCH + PITCH / 2, gy * PITCH + PITCH / 2);
+  };
+  const COLS_ALL = Math.round(canvas.width / PITCH);
+  const ROWS_ALL = Math.round(canvas.height / PITCH);
+  const drawField = (p: { dot: string }) => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    dots((x, y) => paintDot(x, y, p.dot, 0.08));
+  };
+  const block = (cx: number, cy: number, color: string, alpha: number) => {
+    for (let i = 0; i < SUB; i++) for (let j = 0; j < SUB; j++) paintDot((cx + i / SUB) * CELL + PITCH / 2, (cy + j / SUB) * CELL + PITCH / 2, color, alpha);
+  };
+  const single = (cx: number, cy: number, color: string, alpha: number) => paintDot(cx * CELL + CELL / 2, cy * CELL + CELL / 2, color, alpha);
+  return { ctx, drawField, block, single };
+}
+
+export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
+  const { ctx, drawField, block } = makeCtx(canvas);
   const COLS = Math.floor(canvas.width / CELL);
   const ROWS = Math.floor(canvas.height / CELL);
   const dirs = [
@@ -40,6 +65,7 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   let pending: Pt | null = null;
   let food: Pt = { x: 0, y: 0 };
   let playing = false;
+  let dead = false;
   let score = 0;
   let raf = 0;
   let last = 0;
@@ -53,6 +79,7 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   };
   const reset = (auto: boolean) => {
     playing = !auto;
+    dead = false;
     score = 0;
     snake = [
       { x: (COLS / 2) | 0, y: (ROWS / 2) | 0 },
@@ -66,6 +93,11 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     placeFood();
     scoreEl.classList.toggle('hidden', auto);
     scoreEl.textContent = '0';
+  };
+  const freeze = () => {
+    playing = false;
+    dead = true;
+    scoreEl.classList.add('hidden');
   };
   const freeAround = (x: number, y: number) => dirs.filter((d) => inGrid(x + d.x, y + d.y) && !occupied(x + d.x, y + d.y)).length;
   const autoDir = () => {
@@ -86,6 +118,7 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     return best;
   };
   const step = () => {
+    if (dead) return;
     if (!playing) {
       const d = autoDir();
       if (d) dir = d;
@@ -99,7 +132,8 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     }
     const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
     if (!inGrid(head.x, head.y) || occupied(head.x, head.y)) {
-      reset(true);
+      if (playing) freeze();
+      else reset(true);
       return;
     }
     snake.unshift(head);
@@ -111,28 +145,11 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
       placeFood();
     } else snake.pop();
   };
-  const dotAt = (px: number, py: number, color: string, alpha: number) => {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(px, py, DOT / 2, 0, Math.PI * 2);
-    ctx.fill();
-  };
-  const block = (cx: number, cy: number, color: string, alpha: number) => {
-    for (let i = 0; i < SUB; i++)
-      for (let j = 0; j < SUB; j++) dotAt((cx * SUB + i) * PITCH + PITCH / 2, (cy * SUB + j) * PITCH + PITCH / 2, color, alpha);
-  };
   const draw = () => {
     const p = palette();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = p.bg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const maxX = COLS * SUB;
-    const maxY = ROWS * SUB;
-    for (let gx = 0; gx < maxX; gx++)
-      for (let gy = 0; gy < maxY; gy++) dotAt(gx * PITCH + PITCH / 2, gy * PITCH + PITCH / 2, p.dot, 0.07);
+    drawField(p);
     block(food.x, food.y, p.tertiary, 1);
-    snake.forEach((s, i) => block(s.x, s.y, i === 0 ? p.primary : p.primary, i === 0 ? 1 : Math.max(0.4, 1 - i * 0.03)));
+    snake.forEach((s, i) => block(s.x, s.y, p.primary, i === 0 ? 1 : Math.max(0.4, 1 - i * 0.03)));
   };
   const loop = (t: number) => {
     raf = requestAnimationFrame(loop);
@@ -154,21 +171,26 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     if (!(d.x === -dir.x && d.y === -dir.y)) pending = d;
   };
   const onClick = () => {
-    if (!playing) reset(false);
+    if (dead || !playing) reset(false);
+  };
+  const onVisible = () => {
+    if (document.visibilityState === 'visible' && dead) reset(true);
   };
   canvas.addEventListener('click', onClick);
   document.addEventListener('keydown', onKey);
+  document.addEventListener('visibilitychange', onVisible);
   reset(true);
   raf = requestAnimationFrame(loop);
   return () => {
     cancelAnimationFrame(raf);
     canvas.removeEventListener('click', onClick);
     document.removeEventListener('keydown', onKey);
+    document.removeEventListener('visibilitychange', onVisible);
   };
 }
 
 export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
-  const ctx = canvas.getContext('2d')!;
+  const { ctx, drawField, block, single } = makeCtx(canvas);
   const COLS = Math.floor(canvas.width / CELL);
   const ROWS = Math.floor(canvas.height / CELL);
   const W = canvas.width;
@@ -179,6 +201,7 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   let spawnAt = 0;
   let shootAt = 0;
   let playing = false;
+  let dead = false;
   let score = 0;
   let raf = 0;
   let prev = 0;
@@ -186,6 +209,7 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
 
   const reset = (auto: boolean) => {
     playing = !auto;
+    dead = false;
     score = 0;
     ship = { x: COLS / 2, y: ROWS - 3 };
     bullets = [];
@@ -195,6 +219,11 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     scoreEl.classList.toggle('hidden', auto);
     scoreEl.textContent = '0';
   };
+  const freeze = () => {
+    playing = false;
+    dead = true;
+    scoreEl.classList.add('hidden');
+  };
   const shoot = (t: number) => {
     if (t > shootAt) {
       bullets.push({ x: ship.x, y: ship.y - 1 });
@@ -202,6 +231,10 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     }
   };
   const tick = (t: number) => {
+    if (dead) {
+      prev = t;
+      return;
+    }
     const dt = Math.min(0.05, (t - prev) / 1000 || 0.016);
     prev = t;
     const speed = playing ? 7 : 4.5;
@@ -244,32 +277,14 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
           scoreEl.textContent = String(score);
         }
       } else if (hitShip && playing) {
-        reset(true);
+        freeze();
         return;
       }
     }
   };
-  const dotAt = (px: number, py: number, color: string, alpha: number) => {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(px, py, DOT / 2, 0, Math.PI * 2);
-    ctx.fill();
-  };
-  const block = (cx: number, cy: number, color: string, alpha: number) => {
-    for (let i = 0; i < SUB; i++)
-      for (let j = 0; j < SUB; j++) dotAt((cx + i / SUB) * CELL + PITCH / 2, (cy + j / SUB) * CELL + PITCH / 2, color, alpha);
-  };
-  const single = (cx: number, cy: number, color: string, alpha: number) => {
-    dotAt(cx * CELL + CELL / 2, cy * CELL + CELL / 2, color, alpha);
-  };
   const draw = () => {
     const p = palette();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = p.bg;
-    ctx.fillRect(0, 0, W, H);
-    for (let gx = 0; gx < COLS * SUB; gx++)
-      for (let gy = 0; gy < ROWS * SUB; gy++) dotAt(gx * PITCH + PITCH / 2, gy * PITCH + PITCH / 2, p.dot, 0.07);
+    drawField(p);
     for (const e of enemies) block(e.x, e.y, p.tertiary, 1);
     for (const b of bullets) single(b.x, b.y, p.primary, 1);
     block(ship.x, ship.y, p.onPrimary, 1);
@@ -295,11 +310,15 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   };
   const onKeyUp = (e: KeyboardEvent) => held.delete(e.key);
   const onClick = () => {
-    if (!playing) reset(false);
+    if (dead || !playing) reset(false);
+  };
+  const onVisible = () => {
+    if (document.visibilityState === 'visible' && dead) reset(true);
   };
   canvas.addEventListener('click', onClick);
   document.addEventListener('keydown', onKey);
   document.addEventListener('keyup', onKeyUp);
+  document.addEventListener('visibilitychange', onVisible);
   reset(true);
   raf = requestAnimationFrame(loop);
   return () => {
@@ -307,5 +326,6 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     canvas.removeEventListener('click', onClick);
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('keyup', onKeyUp);
+    document.removeEventListener('visibilitychange', onVisible);
   };
 }

@@ -58,6 +58,13 @@ import Layout from '../layouts/Layout.astro';
       </div>
       <button id="blur-toggle" class="switch" data-on="true"><span class="knob"></span></button>
     </div>
+    <div class="mb-5 flex items-center justify-between">
+      <div>
+        <p class="font-medium">Auto close panels</p>
+        <p class="text-sm text-on-surface-variant">Opening the full player closes the queue and lyrics panels.</p>
+      </div>
+      <button id="panel-toggle" class="switch" data-on="true"><span class="knob"></span></button>
+    </div>
     <div>
       <p class="font-medium">UI scale</p>
       <p class="mb-4 text-sm text-on-surface-variant">Dynamic follows your system's text scaling, a touch smaller so more fits.</p>
@@ -198,16 +205,14 @@ import Layout from '../layouts/Layout.astro';
     <p id="cache-status" class="mt-4 text-sm text-on-surface-variant"></p>
   </section>
 
-  <div class="fixed right-6 top-1/2 z-10 hidden -translate-y-1/2 2xl:block">
-    <div class="relative rounded-[28px] bg-surface-container p-3 shadow-xl shadow-black/30">
-      <p id="snake-score" class="pointer-events-none absolute right-5 top-4 z-10 hidden font-mono text-lg font-semibold tabular-nums">0</p>
-      <canvas id="snake-canvas" width="540" height="720" class="block h-[62vh] w-auto cursor-pointer rounded-[22px]"></canvas>
-    </div>
+  <div class="fixed right-6 top-[12vh] bottom-[7.5rem] z-10 hidden w-[42rem] max-w-[42vw] items-center justify-end 2xl:flex">
+    <p id="snake-score" class="pointer-events-none absolute right-7 top-5 z-10 hidden font-mono text-lg font-semibold tabular-nums">0</p>
+    <canvas id="snake-canvas" width="720" height="720" class="max-h-full max-w-full cursor-pointer"></canvas>
   </div>
 </Layout>
 <script>
   import { loadOpts, saveOpts, pushTheme, applyScaleSoon, type ThemeOpts } from '../lib/theme';
-  import { cacheClear, cacheInfo, getSettings, lyricsSetOffset, lyricsSetProvider, setAutocache, setAutoload, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
+  import { cacheClear, cacheInfo, getSettings, lyricsSetOffset, lyricsSetProvider, setAutocache, setAutoload, setPanelClose, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
   import { getQuality, getVolume, setVolume, setQuality, setCrossfade, type Quality } from '../lib/player';
   import { clearLikes, clearHistory } from '../lib/library';
   import { confirmDialog, esc } from '../lib/ui';
@@ -218,6 +223,7 @@ import Layout from '../layouts/Layout.astro';
     const modeGroup = document.getElementById('mode-group')!;
     const schemeGroup = document.getElementById('scheme-group')!;
     const blurToggle = document.getElementById('blur-toggle')!;
+    const panelToggle = document.getElementById('panel-toggle')!;
     const scaleDynamic = document.getElementById('scale-dynamic')!;
     const scaleSlider = document.getElementById('scale-slider')!;
     const scaleInput = document.getElementById('scale-input') as HTMLInputElement;
@@ -392,6 +398,7 @@ import Layout from '../layouts/Layout.astro';
       autoloadToggle.dataset.on = String(s.autoload !== '0');
       lyrLrclib.classList.toggle('on', s.lyr_lrclib !== '0');
       lyrNetease.classList.toggle('on', s.lyr_netease !== '0');
+      panelToggle.dataset.on = String(s.panel_close !== '0');
       return s.autocache !== '0';
     });
     cacheToggle.addEventListener('click', async () => {
@@ -403,6 +410,12 @@ import Layout from '../layouts/Layout.astro';
       const on = (autoloadToggle.dataset.on ?? 'true') !== 'true';
       autoloadToggle.dataset.on = String(on);
       void setAutoload(on);
+    });
+    panelToggle.addEventListener('click', () => {
+      const on = (panelToggle.dataset.on ?? 'true') !== 'true';
+      panelToggle.dataset.on = String(on);
+      void setPanelClose(on);
+      window.dispatchEvent(new CustomEvent('melissm:panel-close', { detail: on }));
     });
     document.getElementById('clear-cache')!.addEventListener('click', async () => {
       if (!(await confirmDialog('Delete all downloaded songs?'))) return;
@@ -545,6 +558,10 @@ import Layout from '../layouts/Layout.astro';
       localStorage.removeItem('melissm.pitch');
       localStorage.removeItem('melissm.crossfade');
       localStorage.removeItem('melissm.anim');
+      localStorage.removeItem('melissm.custom-color');
+      localStorage.removeItem('melissm.lyrics_offset');
+      void lyricsSetOffset(0);
+      window.dispatchEvent(new Event('melissm:lyr-offset'));
       eq = readEq();
       opts = { mode: 'auto', scheme: 'tonal-spot', source: { wallpaper: null }, blur: true, scale: 'dynamic' };
       void commit();
