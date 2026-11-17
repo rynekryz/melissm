@@ -52,16 +52,19 @@ npm run tauri build
 
 - Tauri v2 + Rust backend, no Electron, no bundled Chromium, your RAM is safe here
 - Streams audio straight from YouTube Music, no video overhead, the GPU can chill
-- Live Material 3 Expressive theming from your wallpaper via Matugen
+- Live Material 3 Expressive theming from your wallpaper via Matugen, or pick any color you want
 - Caelestia scheme fallback when wallpaper extraction doesn't work out
 - MPRIS media controls, shows up in your system media widget with lyrics
 - Search, Home, Album, Artist, Playlist, Library and History
-- Native queue with play next, add to queue, reorder and clear upcoming
+- Native queue with play next, add to queue, reorder, radio and clear upcoming
 - Gapless playback and optional crossfade
 - Playlists, liked songs and listening history stored locally
-- Synced lyrics panel via LrcLib, slides in like it's cool
+- Synced lyrics from LRCLIB with word-by-word timing, NetEase as backup
+- Write your own lyrics or fix the timing with an offset, fullscreen mode too
 - System tray with playback controls, so you can pause when the boss walks by
-- Play / pause / resume / seek / volume
+- Speed, pitch, equalizer and audio quality, tune it how you like
+- Songs you play get cached for instant replay
+- Single instance, clicking the app again just focuses the one already running
 - Material Web Components + Tailwind CSS 4
 - Desktop entry and GTK app id so your app launcher actually knows it exists
 - It plays music, literally
