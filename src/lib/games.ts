@@ -19,36 +19,15 @@ const keyDirs: Record<string, Pt> = {
   ArrowRight: { x: 1, y: 0 },
 };
 
-const PITCH = 10;
-const DOT = 8;
+const PITCH = 15;
+const DOT = 12;
 const SUB = 3;
 const CELL = PITCH * SUB;
 
-function makeCtx(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext('2d')!;
-  const paintDot = (px: number, py: number, color: string, alpha: number) => {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(px - DOT / 2, py - DOT / 2, DOT, DOT, 2.5);
-    else ctx.rect(px - DOT / 2, py - DOT / 2, DOT, DOT);
-    ctx.fill();
-  };
-  const dots = (fn: (x: number, y: number) => void) => {
-    for (let gx = 0; gx < COLS_ALL; gx++) for (let gy = 0; gy < ROWS_ALL; gy++) fn(gx * PITCH + PITCH / 2, gy * PITCH + PITCH / 2);
-  };
-  const COLS_ALL = Math.round(canvas.width / PITCH);
-  const ROWS_ALL = Math.round(canvas.height / PITCH);
-  const drawField = (p: { dot: string }) => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    dots((x, y) => paintDot(x, y, p.dot, 0.08));
-  };
-  const block = (cx: number, cy: number, color: string, alpha: number) => {
-    for (let i = 0; i < SUB; i++) for (let j = 0; j < SUB; j++) paintDot((cx + i / SUB) * CELL + PITCH / 2, (cy + j / SUB) * CELL + PITCH / 2, color, alpha);
-  };
-  const single = (cx: number, cy: number, color: string, alpha: number) => paintDot(cx * CELL + CELL / 2, cy * CELL + CELL / 2, color, alpha);
-  return { ctx, drawField, block, single };
-}
+const isTyping = (e: KeyboardEvent) => {
+  const el = e.target;
+  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
+};
 
 const fitSquare = (canvas: HTMLCanvasElement) => {
   const fit = () => {
@@ -60,6 +39,30 @@ const fitSquare = (canvas: HTMLCanvasElement) => {
   window.addEventListener('resize', fit);
   return () => window.removeEventListener('resize', fit);
 };
+
+function makeCtx(canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext('2d')!;
+  const paintDot = (px: number, py: number, color: string, alpha: number) => {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(px - DOT / 2, py - DOT / 2, DOT, DOT, 3);
+    else ctx.rect(px - DOT / 2, py - DOT / 2, DOT, DOT);
+    ctx.fill();
+  };
+  const COLS_ALL = Math.round(canvas.width / PITCH);
+  const ROWS_ALL = Math.round(canvas.height / PITCH);
+  const drawField = (p: { dot: string }) => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let gx = 0; gx < COLS_ALL; gx++)
+      for (let gy = 0; gy < ROWS_ALL; gy++) paintDot(gx * PITCH + PITCH / 2, gy * PITCH + PITCH / 2, p.dot, 0.09);
+  };
+  const block = (cx: number, cy: number, color: string, alpha: number) => {
+    for (let i = 0; i < SUB; i++) for (let j = 0; j < SUB; j++) paintDot((cx + i / SUB) * CELL + PITCH / 2, (cy + j / SUB) * CELL + PITCH / 2, color, alpha);
+  };
+  const single = (cx: number, cy: number, color: string, alpha: number) => paintDot(cx * CELL + CELL / 2, cy * CELL + CELL / 2, color, alpha);
+  return { ctx, drawField, block, single };
+}
 
 export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   const { ctx, drawField, block } = makeCtx(canvas);
@@ -76,10 +79,10 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   let pending: Pt | null = null;
   let food: Pt = { x: 0, y: 0 };
   let playing = false;
-  let dead = false;
   let score = 0;
   let raf = 0;
   let last = 0;
+  let retryAt = 0;
 
   const inGrid = (x: number, y: number) => x >= 0 && y >= 0 && x < COLS && y < ROWS;
   const occupied = (x: number, y: number) => snake.some((s) => s.x === x && s.y === y);
@@ -90,7 +93,6 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   };
   const reset = (auto: boolean) => {
     playing = !auto;
-    dead = false;
     score = 0;
     snake = [
       { x: (COLS / 2) | 0, y: (ROWS / 2) | 0 },
@@ -105,9 +107,9 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     scoreEl.classList.toggle('hidden', auto);
     scoreEl.textContent = '0';
   };
-  const freeze = () => {
+  const die = () => {
     playing = false;
-    dead = true;
+    retryAt = performance.now() + 900;
     scoreEl.classList.add('hidden');
   };
   const freeAround = (x: number, y: number) => dirs.filter((d) => inGrid(x + d.x, y + d.y) && !occupied(x + d.x, y + d.y)).length;
@@ -129,7 +131,6 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     return best;
   };
   const step = () => {
-    if (dead) return;
     if (!playing) {
       const d = autoDir();
       if (d) dir = d;
@@ -143,7 +144,7 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     }
     const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
     if (!inGrid(head.x, head.y) || occupied(head.x, head.y)) {
-      if (playing) freeze();
+      if (playing) die();
       else reset(true);
       return;
     }
@@ -164,41 +165,37 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   };
   const loop = (t: number) => {
     raf = requestAnimationFrame(loop);
-    if (t - last < (playing ? 110 : 150)) return;
+    if (retryAt && t >= retryAt) {
+      retryAt = 0;
+      reset(false);
+    }
+    if (t - last < (playing ? 130 : 170) || t < retryAt) return;
     last = t;
     step();
     draw();
   };
   const onKey = (e: KeyboardEvent) => {
-    const el = e.target;
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+    if (isTyping(e)) {
       if (playing) reset(true);
       return;
     }
-    if (!playing) return;
     const d = keyDirs[e.key];
-    if (!d) return;
+    if (!d || e.ctrlKey || e.metaKey || e.altKey) return;
     e.preventDefault();
+    if (!playing) reset(false);
     if (!(d.x === -dir.x && d.y === -dir.y)) pending = d;
   };
-  const onClick = () => {
-    if (dead || !playing) reset(false);
-  };
-  const onVisible = () => {
-    if (document.visibilityState === 'visible' && dead) reset(true);
-  };
-  canvas.addEventListener('click', onClick);
+  canvas.addEventListener('click', () => {
+    if (!playing) reset(false);
+  });
   document.addEventListener('keydown', onKey);
-  document.addEventListener('visibilitychange', onVisible);
   const stopFit = fitSquare(canvas);
   reset(true);
   raf = requestAnimationFrame(loop);
   return () => {
     cancelAnimationFrame(raf);
     stopFit();
-    canvas.removeEventListener('click', onClick);
     document.removeEventListener('keydown', onKey);
-    document.removeEventListener('visibilitychange', onVisible);
   };
 }
 
@@ -214,15 +211,14 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   let spawnAt = 0;
   let shootAt = 0;
   let playing = false;
-  let dead = false;
   let score = 0;
   let raf = 0;
   let prev = 0;
+  let retryAt = 0;
   const held = new Set<string>();
 
   const reset = (auto: boolean) => {
     playing = !auto;
-    dead = false;
     score = 0;
     ship = { x: COLS / 2, y: ROWS - 3 };
     bullets = [];
@@ -232,9 +228,9 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     scoreEl.classList.toggle('hidden', auto);
     scoreEl.textContent = '0';
   };
-  const freeze = () => {
+  const die = () => {
     playing = false;
-    dead = true;
+    retryAt = performance.now() + 900;
     scoreEl.classList.add('hidden');
   };
   const shoot = (t: number) => {
@@ -244,10 +240,6 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     }
   };
   const tick = (t: number) => {
-    if (dead) {
-      prev = t;
-      return;
-    }
     const dt = Math.min(0.05, (t - prev) / 1000 || 0.016);
     prev = t;
     const speed = playing ? 7 : 4.5;
@@ -290,7 +282,7 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
           scoreEl.textContent = String(score);
         }
       } else if (hitShip && playing) {
-        freeze();
+        die();
         return;
       }
     }
@@ -305,42 +297,39 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   };
   const loop = (t: number) => {
     raf = requestAnimationFrame(loop);
+    if (retryAt && t >= retryAt) {
+      retryAt = 0;
+      reset(false);
+    }
     if (!prev) prev = t;
+    if (t < retryAt) return;
     tick(t);
     draw();
   };
   const onKey = (e: KeyboardEvent) => {
-    const el = e.target;
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+    if (isTyping(e)) {
       if (playing) reset(true);
       return;
     }
-    if (!playing) return;
     const d = keyDirs[e.key];
-    if (!d) return;
+    if (!d || e.ctrlKey || e.metaKey || e.altKey) return;
     e.preventDefault();
+    if (!playing) reset(false);
     held.add(e.key);
   };
   const onKeyUp = (e: KeyboardEvent) => held.delete(e.key);
-  const onClick = () => {
-    if (dead || !playing) reset(false);
-  };
-  const onVisible = () => {
-    if (document.visibilityState === 'visible' && dead) reset(true);
-  };
-  canvas.addEventListener('click', onClick);
+  canvas.addEventListener('click', () => {
+    if (!playing) reset(false);
+  });
   document.addEventListener('keydown', onKey);
   document.addEventListener('keyup', onKeyUp);
-  document.addEventListener('visibilitychange', onVisible);
   const stopFit = fitSquare(canvas);
   reset(true);
   raf = requestAnimationFrame(loop);
   return () => {
     cancelAnimationFrame(raf);
     stopFit();
-    canvas.removeEventListener('click', onClick);
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('keyup', onKeyUp);
-    document.removeEventListener('visibilitychange', onVisible);
   };
 }
