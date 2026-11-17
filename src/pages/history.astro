@@ -10,6 +10,7 @@ import Layout from '../layouts/Layout.astro';
 </Layout>
 <script>
   import { clearHistory, getHistory, removeHistory } from '../lib/library';
+  import { confirmDialog } from '../lib/ui';
   import { renderTracks } from '../lib/ui';
 
   document.addEventListener('astro:page-load', () => {
@@ -22,7 +23,8 @@ import Layout from '../layouts/Layout.astro';
           draw();
         },
       });
-    document.getElementById('clear-history')!.addEventListener('click', () => {
+    document.getElementById('clear-history')!.addEventListener('click', async () => {
+      if (!(await confirmDialog('Clear your listening history?'))) return;
       clearHistory();
       draw();
     });

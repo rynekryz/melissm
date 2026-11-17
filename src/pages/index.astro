@@ -10,7 +10,8 @@ import Layout from '../layouts/Layout.astro';
     <section id="recent-section" class="hidden">
       <h2 class="mb-4 text-2xl font-medium">Jump back in</h2>
       <div id="recent-row" class="h-row"></div>
-    </section>    <div id="skeleton" class="space-y-10">
+    </section>
+    <div id="skeleton" class="space-y-10">
       <section><div class="mb-4 h-7 w-48 skeleton"></div><div class="h-row flex gap-4 overflow-hidden"><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div></div></section>
       <section><div class="mb-4 h-7 w-40 skeleton"></div><div class="h-row flex gap-4 overflow-hidden"><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div><div class="w-[168px] aspect-square skeleton rounded-[32px]"></div></div></section>
     </div>
@@ -19,7 +20,7 @@ import Layout from '../layouts/Layout.astro';
 </Layout>
 <script>
   import { home, playlistsForYou } from '../lib/api';
-  import { getHistory } from '../lib/library';
+  import { getHistory, subscribe } from '../lib/library';
   import { renderCards } from '../lib/ui';
 
   document.addEventListener('astro:page-load', async () => {
@@ -74,5 +75,15 @@ import Layout from '../layouts/Layout.astro';
       status.textContent = 'Could not reach YouTube Music. Check your connection and try again.';
       console.error(e);
     }
+
+    const sub = subscribe(() => {
+      const sec = document.getElementById('recent-section');
+      const row = document.getElementById('recent-row');
+      if (!sec || !row) return;
+      const recents = getHistory();
+      sec.classList.toggle('hidden', !recents.length);
+      if (recents.length) renderCards(row, recents, { row: true });
+    });
+    window.addEventListener('astro:before-swap', () => sub(), { once: true });
   });
 </script>

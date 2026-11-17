@@ -669,7 +669,10 @@ fn set_quality(state: State<'_, AppState>, quality: String) {
 #[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
-    for key in ["volume", "speed", "pitch", "eq", "quality", "crossfade", "shuffle", "repeat", "autocache", "autoload"] {
+    for key in [
+        "volume", "speed", "pitch", "eq", "quality", "crossfade", "shuffle", "repeat", "autocache", "autoload",
+        "lyr_lrclib", "lyr_netease", "lyrics_offset",
+    ] {
         m.insert(key.to_string(), state.store.setting(key).unwrap_or_default());
     }
     m
@@ -877,12 +880,38 @@ fn playlist_remove(state: State<'_, AppState>, id: i64, track_id: String) {
 #[tauri::command]
 async fn lyrics(
     state: State<'_, AppState>,
+    id: String,
     title: String,
     artist: String,
     album: String,
     duration: f64,
 ) -> Result<Lyrics, String> {
-    lyrics::fetch(&state.yt.http, &title, &artist, &album, duration).await
+    Ok(lyrics::fetch(&state.store, &state.yt.http, &id, &title, &artist, &album, duration).await)
+}
+
+#[tauri::command]
+fn lyrics_get_custom(state: State<'_, AppState>, id: String) -> Option<String> {
+    state.store.custom_lyrics(&id)
+}
+
+#[tauri::command]
+fn lyrics_save_custom(state: State<'_, AppState>, id: String, text: String) {
+    state.store.save_custom_lyrics(&id, &text);
+}
+
+#[tauri::command]
+fn lyrics_delete_custom(state: State<'_, AppState>, id: String) {
+    state.store.delete_custom_lyrics(&id);
+}
+
+#[tauri::command]
+fn lyrics_set_provider(state: State<'_, AppState>, provider: String, enabled: bool) {
+    state.store.set_setting(&format!("lyr_{provider}"), if enabled { "1" } else { "0" });
+}
+
+#[tauri::command]
+fn lyrics_set_offset(state: State<'_, AppState>, offset: f64) {
+    state.store.set_setting("lyrics_offset", &offset.clamp(-10.0, 10.0).to_string());
 }
 
 #[tauri::command]
@@ -949,6 +978,13 @@ fn main() {
     store.clone().spawn_saver();
     let opts: SharedOpts = std::sync::Arc::new(std::sync::Mutex::new(ThemeOpts::default()));
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .manage(opts.clone())
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -1059,7 +1095,8 @@ fn main() {
             cache_info, cache_clear, add_to_queue, remove_from_queue, move_in_queue, clear_upcoming,
             likes_list, like_toggle, likes_clear, history_list, history_remove, history_clear,
             store_import, playlists_list, playlist_create, playlist_rename, playlist_delete,
-            playlist_tracks, playlist_add, playlist_remove, lyrics, set_theme, system_scale,
+            playlist_tracks, playlist_add, playlist_remove, lyrics, lyrics_get_custom, lyrics_save_custom,
+            lyrics_delete_custom, lyrics_set_provider, lyrics_set_offset, set_theme, system_scale,
             toggle_fullscreen
         ])
         .build(tauri::generate_context!())

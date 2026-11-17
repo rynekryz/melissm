@@ -90,6 +90,30 @@ const closeMenu = () => {
   plMenu = null;
 };
 
+export function confirmDialog(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const back = document.createElement('div');
+    back.className = 'fixed inset-0 z-[70] grid place-items-center bg-black/60 p-6 backdrop-blur-sm';
+    back.innerHTML = `<div class="w-full max-w-sm rounded-[28px] bg-surface-container-high p-6 shadow-2xl shadow-black/50">
+      <p class="text-lg font-medium">${esc(message)}</p>
+      <div class="mt-6 flex justify-end gap-2">
+        <button data-no class="press h-12 rounded-full bg-surface-container-highest px-6 font-medium">Cancel</button>
+        <button data-yes class="press h-12 rounded-full bg-error px-6 font-medium text-on-error">Delete</button>
+      </div>
+    </div>`;
+    document.body.appendChild(back);
+    const done = (v: boolean) => {
+      back.remove();
+      resolve(v);
+    };
+    back.querySelector('[data-no]')!.addEventListener('click', () => done(false));
+    back.querySelector('[data-yes]')!.addEventListener('click', () => done(true));
+    back.addEventListener('click', (e) => {
+      if (e.target === back) done(false);
+    });
+  });
+}
+
 function openPlaylistMenu(anchor: HTMLElement, track: Track) {
   closeMenu();
   const lists = getPlaylists();

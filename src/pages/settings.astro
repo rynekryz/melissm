@@ -152,6 +152,26 @@ import Layout from '../layouts/Layout.astro';
   </section>
 
   <section class="mb-6 max-w-3xl rounded-[28px] bg-surface-container p-6">
+    <h2 class="mb-1 text-xl font-medium">Lyrics</h2>
+    <p class="mb-4 text-sm text-on-surface-variant">LRCLIB has word-by-word timing when available, NetEase is the fallback. Offset shifts every line.</p>
+    <div class="mb-6 flex flex-wrap gap-2" id="lyr-providers">
+      <button id="lyr-lrclib" class="chip">LRCLIB</button>
+      <button id="lyr-netease" class="chip">NetEase</button>
+    </div>
+    <div class="flex flex-wrap items-center gap-4">
+      <span class="ms text-on-surface-variant">hourglass_empty</span>
+      <div id="lyr-offset-slider" class="xslider w-64 max-w-full">
+        <input id="lyr-offset-input" type="range" min="-5" max="5" step="0.5" aria-label="Lyrics offset" />
+        <div class="xtrack"></div>
+        <div class="xfill"></div>
+        <div class="xhandle"></div>
+      </div>
+      <button id="lyr-offset-reset" class="chip">Reset</button>
+      <span id="lyr-offset-label" class="w-14 text-sm tabular-nums text-on-surface-variant">0.0s</span>
+    </div>
+  </section>
+
+  <section class="mb-6 max-w-3xl rounded-[28px] bg-surface-container p-6">
     <h2 class="mb-1 text-xl font-medium">Data</h2>
     <p class="mb-4 text-sm text-on-surface-variant">Everything is stored locally on this machine.</p>
     <div class="mb-5 flex items-center justify-between">
@@ -168,7 +188,7 @@ import Layout from '../layouts/Layout.astro';
       </div>
       <button id="autoload-toggle" class="switch" data-on="true"><span class="knob"></span></button>
     </div>
-    <div class="flex flex-wrap gap-3">
+    <div class="mt-5 flex flex-wrap gap-3">
       <button id="clear-recent" class="chip">Clear listening history</button>
       <button id="clear-likes" class="chip">Clear liked songs</button>
       <button id="clear-cache" class="chip">Clear downloaded songs</button>
@@ -179,9 +199,10 @@ import Layout from '../layouts/Layout.astro';
 </Layout>
 <script>
   import { loadOpts, saveOpts, pushTheme, applyScaleSoon, type ThemeOpts } from '../lib/theme';
-  import { cacheClear, cacheInfo, getSettings, setAutocache, setAutoload, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
+  import { cacheClear, cacheInfo, getSettings, lyricsSetOffset, lyricsSetProvider, setAutocache, setAutoload, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
   import { getQuality, getVolume, setVolume, setQuality, setCrossfade, type Quality } from '../lib/player';
   import { clearLikes, clearHistory } from '../lib/library';
+  import { confirmDialog } from '../lib/ui';
 
   document.addEventListener('astro:page-load', () => {
     const status = document.getElementById('theme-status')!;
@@ -214,6 +235,11 @@ import Layout from '../layouts/Layout.astro';
     const pitchLabel = document.getElementById('pitch-label')!;
     const eqBands = document.getElementById('eq-bands')!;
     const eqPresets = document.getElementById('eq-presets')!;
+    const lyrLrclib = document.getElementById('lyr-lrclib')!;
+    const lyrNetease = document.getElementById('lyr-netease')!;
+    const lyrOffsetSlider = document.getElementById('lyr-offset-slider')!;
+    const lyrOffsetInput = document.getElementById('lyr-offset-input') as HTMLInputElement;
+    const lyrOffsetLabel = document.getElementById('lyr-offset-label')!;
 
     let opts: ThemeOpts = loadOpts();
     let colorCache = opts.source.color ?? '#7c4dff';
@@ -353,6 +379,8 @@ import Layout from '../layouts/Layout.astro';
     const cacheOn = getSettings().then((s) => {
       cacheToggle.dataset.on = String(s.autocache !== '0');
       autoloadToggle.dataset.on = String(s.autoload !== '0');
+      lyrLrclib.classList.toggle('on', s.lyr_lrclib !== '0');
+      lyrNetease.classList.toggle('on', s.lyr_netease !== '0');
       return s.autocache !== '0';
     });
     cacheToggle.addEventListener('click', async () => {
@@ -366,8 +394,10 @@ import Layout from '../layouts/Layout.astro';
       void setAutoload(on);
     });
     document.getElementById('clear-cache')!.addEventListener('click', async () => {
+      if (!(await confirmDialog('Delete all downloaded songs?'))) return;
       await cacheClear();
       void paintCache();
+      status.textContent = 'Downloaded songs cleared.';
     });
     colorInput.addEventListener('input', () => {
       colorCache = colorInput.value;
@@ -430,15 +460,18 @@ import Layout from '../layouts/Layout.astro';
       else if (v === 'treble') applyEq([0, 0, 0, 0, 0, 1, 3, 5, 6, 6]);
       else applyEq(Array(10).fill(0));
     });
-    document.getElementById('clear-recent')!.addEventListener('click', () => {
+    document.getElementById('clear-recent')!.addEventListener('click', async () => {
+      if (!(await confirmDialog('Clear your listening history?'))) return;
       clearHistory();
       status.textContent = 'Listening history cleared.';
     });
-    document.getElementById('clear-likes')!.addEventListener('click', () => {
+    document.getElementById('clear-likes')!.addEventListener('click', async () => {
+      if (!(await confirmDialog('Clear all liked songs?'))) return;
       clearLikes();
       status.textContent = 'Liked songs cleared.';
     });
-    document.getElementById('reset-all')!.addEventListener('click', () => {
+    document.getElementById('reset-all')!.addEventListener('click', async () => {
+      if (!(await confirmDialog('Reset everything? Playlists, history and settings will be wiped.'))) return;
       clearLikes();
       clearHistory();
       localStorage.removeItem('melissm.eq');
@@ -457,6 +490,32 @@ import Layout from '../layouts/Layout.astro';
       status.textContent = 'Everything reset to defaults.';
     });
 
+    const paintLyrOffset = () => {
+      const off = parseFloat(localStorage.getItem('melissm.lyrics_offset') ?? '0') || 0;
+      lyrOffsetInput.value = String(off);
+      lyrOffsetSlider.style.setProperty('--p', `${((off + 5) / 10) * 100}%`);
+      lyrOffsetSlider.style.setProperty('--p-num', String((off + 5) / 10));
+      lyrOffsetSlider.dataset.at = off <= -5 ? 'start' : off >= 5 ? 'end' : 'mid';
+      lyrOffsetLabel.textContent = `${off > 0 ? '+' : ''}${off.toFixed(1)}s`;
+    };
+    const commitLyrOffset = (off: number) => {
+      localStorage.setItem('melissm.lyrics_offset', String(off));
+      void lyricsSetOffset(off);
+      paintLyrOffset();
+    };
+    lyrOffsetInput.addEventListener('input', () => commitLyrOffset(+lyrOffsetInput.value));
+    document.getElementById('lyr-offset-reset')!.addEventListener('click', () => commitLyrOffset(0));
+    lyrLrclib.addEventListener('click', () => {
+      const on = !lyrLrclib.classList.contains('on');
+      lyrLrclib.classList.toggle('on', on);
+      void lyricsSetProvider('lrclib', on);
+    });
+    lyrNetease.addEventListener('click', () => {
+      const on = !lyrNetease.classList.contains('on');
+      lyrNetease.classList.toggle('on', on);
+      void lyricsSetProvider('netease', on);
+    });
+    paintLyrOffset();
     paint();
     void cacheOn.then(() => paint());
     void paintCache();

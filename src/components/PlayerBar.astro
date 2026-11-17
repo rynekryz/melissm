@@ -7,11 +7,30 @@
 </div>
 
 <div id="lyrics-panel" class="lyrics-glass fixed right-3 top-3 bottom-[108px] z-50 flex w-[380px] translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
-  <h2 class="mb-2 shrink-0 px-2 text-lg font-medium">Lyrics</h2>
+  <div class="mb-2 flex shrink-0 items-center justify-between px-2">
+    <h2 class="text-lg font-medium">Lyrics</h2>
+    <div class="flex gap-1">
+      <button id="ly-edit" class="press grid size-9 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Edit lyrics"><span class="ms text-on-surface-variant">edit</span></button>
+      <button id="ly-full" class="press grid size-9 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fullscreen lyrics"><span class="ms text-on-surface-variant">fullscreen</span></button>
+    </div>
+  </div>
   <div id="lyrics-viewport" class="lyrics-mask flex-1 overflow-y-auto pr-2">
     <div id="lyrics-body" class="space-y-6 pb-24 pt-10 text-2xl font-medium leading-snug"></div>
   </div>
-  <p class="mt-2 shrink-0 px-2 text-xs text-on-surface-variant">Lyrics from LrcLib</p>
+  <p id="ly-provider" class="mt-2 shrink-0 px-2 text-xs text-on-surface-variant">Lyrics from LrcLib</p>
+</div>
+
+<div id="lyr-full" aria-hidden="true">
+  <img id="lf-bg" alt="" class="absolute inset-0 size-full scale-125 object-cover blur-[64px]" style="opacity:0" />
+  <div class="scrim"></div>
+  <button id="lf-close" class="press absolute left-8 top-8 z-20 grid size-14 place-items-center rounded-full bg-surface-container/90 text-on-surface shadow-lg shadow-black/30 hover:bg-surface-container-highest" aria-label="Close fullscreen lyrics"><span class="ms">expand_more</span></button>
+  <button id="lf-edit" class="press absolute right-8 top-8 z-20 grid size-14 place-items-center rounded-full bg-surface-container/90 text-on-surface shadow-lg shadow-black/30 hover:bg-surface-container-highest" aria-label="Edit lyrics"><span class="ms">edit</span></button>
+  <div class="lyr-fs-pop relative z-10 mx-auto flex h-full w-full max-w-[1000px] flex-col px-20 py-24">
+    <p id="lf-title" class="mb-8 shrink-0 truncate text-2xl font-medium opacity-70">Nothing playing</p>
+    <div class="lyrics-mask min-h-0 flex-1 overflow-hidden">
+      <div id="lf-body" class="space-y-8 pb-40 pt-24 text-3xl font-medium leading-snug"></div>
+    </div>
+  </div>
 </div>
 
 <div id="player" class="glass idle fixed inset-x-3 bottom-3 z-30 flex h-[84px] items-center gap-6 rounded-[32px] px-5 shadow-xl shadow-black/40 transition-colors duration-700">
@@ -104,8 +123,8 @@
 
 <script>
   import { current, cycleRepeat, next, onError, previous, playAt, removeFromQueue, moveInQueue, clearUpcoming, seek, setVolume, subscribe, toggle, toggleShuffle, type PlayerState } from '../lib/player';
-  import { isLiked, toggleLike } from '../lib/library';
-  import { lyrics } from '../lib/api';
+  import { isLiked, refreshHistory, toggleLike } from '../lib/library';
+  import { lyrics, lyricsDeleteCustom, lyricsGetCustom, lyricsSaveCustom } from '../lib/api';
   import { esc, fmt } from '../lib/ui';
 
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -113,6 +132,8 @@
   const panel = $('lyrics-panel');
   const qPanel = $('queue-panel');
   const qList = $('queue-list');
+  const lyrFull = $('lyr-full');
+  const lfBody = $('lf-body');
   const body = $('lyrics-body');
   const art = $<HTMLImageElement>('p-art');
   const artFallback = $('p-art-fallback');
@@ -122,9 +143,12 @@
   const fpSeekInput = $<HTMLInputElement>('fp-seek-input');
   const fpVol = $('fp-vol');
   const fpVolInput = $<HTMLInputElement>('fp-vol-input');
-  let lines: { t: number; text: string }[] = [];
+  let lines: { t: number; text: string; words?: { w: string; s: number }[] }[] = [];
   let lyricsFor = '';
   let activeLine = -1;
+  let isCustom = false;
+  let fsOpen = false;
+  const lycOffset = () => parseFloat(localStorage.getItem('melissm.lyrics_offset') ?? '0') || 0;
 
   const polar = (fn: (a: number) => number, steps = 220) => {
     let d = '';
@@ -230,20 +254,53 @@
     lyricsFor = track.id;
     lines = [];
     activeLine = -1;
+    isCustom = false;
     body.innerHTML = '<p class="text-on-surface-variant">Looking for lyrics…</p>';
+    lfBody.innerHTML = '';
     try {
       const l = await lyrics(track);
       if (lyricsFor !== track.id) return;
-      if (l.synced) {
-        lines = parseLrc(l.synced);
-        body.innerHTML = lines.map((x, i) => `<p class="lyric" data-l="${i}">${esc(x.text) || '♪'}</p>`).join('');
+      isCustom = l.custom;
+      const off = lycOffset();
+      $('ly-provider').textContent = l.custom ? 'Your lyrics' : `Lyrics from ${l.provider || 'LrcLib'}`;
+      if (l.karaoke) {
+        lines = l.karaoke.map((k) => ({
+          t: k.start + off,
+          text: k.text,
+          words: k.words?.map((w) => ({ w: w.t, s: w.s + off })),
+        }));
+      } else if (l.synced) {
+        lines = parseLrc(l.synced).map((x) => ({ ...x, t: x.t + off }));
       } else if (l.plain) {
         body.innerHTML = l.plain.split('\n').map((x) => `<p>${esc(x)}</p>`).join('');
-      } else body.innerHTML = '<p class="text-on-surface-variant">No lyrics for this one.</p>';
+        lfBody.innerHTML = l.plain.split('\n').map((x) => `<p class="lyric">${esc(x)}</p>`).join('');
+      } else {
+        body.innerHTML = '<p class="text-on-surface-variant">No lyrics for this one. Hit the pencil to write your own.</p>';
+      }
+      paintLines();
     } catch {
       body.innerHTML = '<p class="text-on-surface-variant">Could not load lyrics. Check your connection.</p>';
     }
   }
+
+  const paintLines = () => {
+    const render = (el: HTMLElement, big: boolean) => {
+      if (!lines.length) {
+        if (big) el.innerHTML = '';
+        return;
+      }
+      el.innerHTML = lines
+        .map((x) =>
+          x.words
+            ? `<p class="lyric" data-l="${lines.indexOf(x)}">${x.words.map((w) => `<span class="kw" data-s="${w.s}">${esc(w.w)}</span>`).join('')}</p>`
+            : `<p class="lyric" data-l="${lines.indexOf(x)}">${esc(x.text) || '♪'}</p>`,
+        )
+        .join('');
+    };
+    render(body, false);
+    render(lfBody, true);
+    activeLine = -1;
+  };
 
   const openFull = () => {
     full.classList.add('open');
@@ -260,7 +317,15 @@
   });
   $('fp-close').onclick = closeFull;
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && full.classList.contains('open')) closeFull();
+    if (e.key === 'Escape') {
+      if (editorOpen) {
+        editBack()?.remove();
+        editorOpen = false;
+        return;
+      }
+      if (fsOpen) closeFsLyrics();
+      else if (full.classList.contains('open')) closeFull();
+    }
   });
 
   const syncFpControls = (playing: boolean, shuffle: boolean, repeat: string) => {
@@ -305,6 +370,64 @@
     panel.classList.toggle('translate-x-[115%]');
     if (!panel.classList.contains('translate-x-[115%]')) loadLyrics();
   };
+  const openFsLyrics = () => {
+    fsOpen = true;
+    lyrFull.classList.add('open');
+    lyrFull.setAttribute('aria-hidden', 'false');
+    loadLyrics();
+  };
+  const closeFsLyrics = () => {
+    fsOpen = false;
+    lyrFull.classList.remove('open');
+    lyrFull.setAttribute('aria-hidden', 'true');
+  };
+  $('ly-full').onclick = openFsLyrics;
+  $('lf-close').onclick = closeFsLyrics;
+  $('lf-edit').onclick = openEditor;
+  $('ly-edit').onclick = openEditor;
+  const editBack = () => $('ly-edit-back');
+  let editorOpen = false;
+  async function openEditor() {
+    const track = current();
+    if (!track || editorOpen) return;
+    editorOpen = true;
+    const existing = isCustom ? await lyricsGetCustom(track.id) : null;
+    const back = document.createElement('div');
+    back.id = 'ly-edit-back';
+    back.className = 'fixed inset-0 z-[80] grid place-items-center bg-black/60 p-6 backdrop-blur-sm';
+    back.innerHTML = `<div class="flex w-full max-w-xl flex-col rounded-[28px] bg-surface-container-high p-6 shadow-2xl shadow-black/50">
+      <p class="mb-4 text-lg font-medium">Edit lyrics</p>
+      <textarea id="ly-edit-text" spellcheck="false" placeholder="Paste or type lyrics here. Use [mm:ss.xx] timestamps for synced lines, plain text works too." class="h-72 w-full resize-none rounded-2xl bg-surface-container-highest p-4 text-sm leading-relaxed outline-none">${existing ? esc(existing) : ''}</textarea>
+      <div class="mt-4 flex justify-end gap-2">
+        ${isCustom ? '<button data-del class="press h-12 rounded-full bg-error px-6 font-medium text-on-error">Delete</button>' : ''}
+        <button data-cancel class="press h-12 rounded-full bg-surface-container-highest px-6 font-medium">Cancel</button>
+        <button data-save class="press h-12 rounded-full bg-primary px-6 font-medium text-on-primary">Save</button>
+      </div>
+    </div>`;
+    document.body.appendChild(back);
+    const done = () => {
+      back.remove();
+      editorOpen = false;
+    };
+    back.querySelector('[data-cancel]')!.addEventListener('click', done);
+    back.addEventListener('click', (e) => {
+      if (e.target === back) done();
+    });
+    back.querySelector('[data-save]')!.addEventListener('click', async () => {
+      const text = (back.querySelector('#ly-edit-text') as HTMLTextAreaElement).value;
+      await lyricsSaveCustom(track.id, text);
+      lyricsFor = '';
+      done();
+      loadLyrics();
+    });
+    const del = back.querySelector('[data-del]');
+    del?.addEventListener('click', async () => {
+      await lyricsDeleteCustom(track.id);
+      lyricsFor = '';
+      done();
+      loadLyrics();
+    });
+  }
   $('p-play').onclick = toggle;
   $('p-next').onclick = next;
   $('p-prev').onclick = previous;
@@ -373,10 +496,15 @@
       $('fp-like-icon').className = `ms text-[26px] ${isLiked(t.id) ? 'fill text-primary' : ''}`;
       if (t.id !== lastTrackId) {
         lastTrackId = t.id;
+        refreshHistory();
         $('fp-title').textContent = t.title;
         $('fp-artist').textContent = t.artist || t.album || 'Unknown artist';
+        $('lf-title').textContent = t.title;
         const bg = $<HTMLImageElement>('fp-bg');
+        const lbg = $<HTMLImageElement>('lf-bg');
         if (bg.getAttribute('src') !== (t.thumbnail || '')) bg.src = t.thumbnail || '';
+        if (lbg.getAttribute('src') !== (t.thumbnail || '')) lbg.src = t.thumbnail || '';
+        lbg.style.opacity = t.thumbnail ? '1' : '0';
         bg.style.opacity = t.thumbnail ? '1' : '0';
         setArt(t.thumbnail);
       }
@@ -422,11 +550,20 @@
     if (lines.length) {
       const i = lines.findLastIndex((l) => l.t <= s.position + 0.15);
       if (i !== activeLine) {
-        body.querySelector('.on')?.classList.remove('on');
-        const el = body.querySelector<HTMLElement>(`[data-l="${i}"]`);
-        el?.classList.add('on');
-        el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        for (const el of [body, lfBody]) {
+          el.querySelector('.on')?.classList.remove('on');
+          el.querySelector<HTMLElement>(`[data-l="${i}"]`)?.classList.add('on');
+        }
+        body.querySelector<HTMLElement>(`[data-l="${i}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        if (fsOpen) lfBody.querySelector<HTMLElement>(`[data-l="${i}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         activeLine = i;
+      }
+      const line = lines[i];
+      if (line?.words && fsOpen) {
+        lfBody.querySelectorAll<HTMLElement>(`.kw.on-word`).forEach((w) => w.classList.remove('on-word'));
+        for (const w of lfBody.querySelectorAll<HTMLElement>(`[data-l="${i}"] .kw`)) {
+          if (+w.dataset.s! <= s.position + 0.15) w.classList.add('on-word');
+        }
       }
     }
   });

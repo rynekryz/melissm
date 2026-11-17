@@ -2,7 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Track } from './player';
 import type { AlbumPage, ArtistPage, PlaylistMeta, Section } from './types';
 
-export type Lyrics = { synced: string | null; plain: string | null };
+export type KWord = { t: string; s: number };
+export type KLine = { text: string; start: number; words: KWord[] | null };
+export type Lyrics = { synced: string | null; plain: string | null; karaoke: KLine[] | null; provider: string; custom: boolean };
 export type ThemeMode = 'auto' | 'dark' | 'light';
 export type ThemeSource = { wallpaper: null } | { artwork: null } | { color: string };
 
@@ -15,7 +17,12 @@ export const albumMore = (token: string) => invoke<[Track[], string | null]>('al
 export const setAutoload = (enabled: boolean) => invoke('set_autoload', { enabled });
 export const artist = (id: string) => invoke<ArtistPage>('artist', { id });
 export const lyrics = (t: Track) =>
-  invoke<Lyrics>('lyrics', { title: t.title, artist: t.artist, album: t.album, duration: t.duration });
+  invoke<Lyrics>('lyrics', { id: t.id, title: t.title, artist: t.artist, album: t.album, duration: t.duration });
+export const lyricsGetCustom = (id: string) => invoke<string | null>('lyrics_get_custom', { id });
+export const lyricsSaveCustom = (id: string, text: string) => invoke('lyrics_save_custom', { id, text });
+export const lyricsDeleteCustom = (id: string) => invoke('lyrics_delete_custom', { id });
+export const lyricsSetProvider = (provider: string, enabled: boolean) => invoke('lyrics_set_provider', { provider, enabled });
+export const lyricsSetOffset = (offset: number) => invoke('lyrics_set_offset', { offset });
 export const setTheme = (theme: { mode: ThemeMode; scheme: string; source: ThemeSource }) =>
   invoke<Record<string, string>>('set_theme', { theme });
 export const systemScale = () => invoke<number>('system_scale');

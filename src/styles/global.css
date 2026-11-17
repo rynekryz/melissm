@@ -111,6 +111,18 @@ img { -webkit-user-drag: none; user-drag: none; }
 #p-full.open .fp-pop { transform: none; opacity: 1; }
 #p-full.open .fp-art { border-radius: 32px; }
 
+#lyr-full { position: fixed; inset: 0; z-index: 40; overflow: hidden; visibility: hidden; opacity: 0; pointer-events: none; background: var(--md-sys-color-surface-container-low); transition: opacity 0.4s, visibility 0.4s; }
+#lyr-full #lf-bg { transition: opacity 0.7s; }
+#lyr-full .scrim { background: color-mix(in srgb, var(--md-sys-color-surface-container-lowest) 45%, transparent); transition: background-color 0.7s; }
+#lyr-full .lyr-fs-pop { transform: translateY(72px) scale(0.97); opacity: 0; transition: transform 0.55s var(--spring), opacity 0.4s; }
+#lyr-full.open { visibility: visible; opacity: 1; pointer-events: auto; }
+#lyr-full.open .lyr-fs-pop { transform: none; opacity: 1; }
+#lyr-full .lyric { font-size: 2.25rem; line-height: 1.3; }
+#lyr-full .lyric.on { color: var(--md-sys-color-on-surface); opacity: 1; }
+#lyr-full .kw { opacity: 0.35; transition: opacity 0.25s, color 0.2s; }
+#lyr-full .lyric.on .kw { opacity: 0.55; }
+#lyr-full .lyric.on .kw.on-word { opacity: 1; color: var(--md-sys-color-primary); }
+
 .ms { font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal; font-size: 24px; line-height: 1; display: inline-block; white-space: nowrap; font-variation-settings: "FILL" 0, "wght" 400; user-select: none; }
 .ms.fill { font-variation-settings: "FILL" 1, "wght" 400; }
 

@@ -23,6 +23,7 @@ import Layout from '../layouts/Layout.astro';
 </Layout>
 <script>
   import { createPlaylist, deletePlaylist, getLikes, getPlaylists, subscribe } from '../lib/library';
+  import { confirmDialog } from '../lib/ui';
   import { playQueue } from '../lib/player';
   import { esc, renderTracks } from '../lib/ui';
   import { navigate } from 'astro:transitions/client';
@@ -51,8 +52,10 @@ import Layout from '../layouts/Layout.astro';
         .join('');
       plEl.querySelectorAll<HTMLElement>('.playlist-card').forEach((card) => {
         const id = +card.dataset.id!;
-        card.onclick = (e) => {
+        card.onclick = async (e) => {
           if ((e.target as HTMLElement).closest('[data-del]')) {
+            const pl = getPlaylists().find((p) => String(p.id) === id);
+            if (!(await confirmDialog(`Delete playlist "${pl?.name ?? ''}"?`))) return;
             void deletePlaylist(id).then(drawPlaylists);
             return;
           }

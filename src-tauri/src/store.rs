@@ -73,7 +73,8 @@ impl Store {
             CREATE TABLE IF NOT EXISTS playlist_tracks(
                 pid INTEGER, pos INTEGER, id TEXT, title TEXT, artist TEXT, album TEXT,
                 duration REAL, thumbnail TEXT, artist_id TEXT, is_album INTEGER, PRIMARY KEY(pid,pos));
-            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);",
+            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE IF NOT EXISTS lyrics(id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at INTEGER);",
         )
         .expect("init store");
         Self { conn: Mutex::new(conn), dirty: AtomicBool::new(false), last_ts: AtomicI64::new(0), work }
@@ -321,6 +322,30 @@ impl Store {
             );
         }
         drop(conn);
+        self.touch();
+    }
+
+    pub fn custom_lyrics(&self, id: &str) -> Option<String> {
+        self.conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT text FROM lyrics WHERE id = ?", params![id], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten()
+    }
+
+    pub fn save_custom_lyrics(&self, id: &str, text: &str) {
+        let _ = self.conn.lock().unwrap().execute(
+            "INSERT INTO lyrics(id, text, updated_at) VALUES(?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at",
+            params![id, text, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64],
+        );
+        self.touch();
+    }
+
+    pub fn delete_custom_lyrics(&self, id: &str) {
+        let _ = self.conn.lock().unwrap().execute("DELETE FROM lyrics WHERE id = ?", params![id]);
         self.touch();
     }
 }

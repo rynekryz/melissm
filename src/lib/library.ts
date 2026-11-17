@@ -58,6 +58,12 @@ export const getHistory = () => history;
 export const getPlaylists = () => playlists;
 export const isLiked = (id: string) => likes.some((t) => t.id === id);
 
+export async function refreshHistory() {
+  if (!isTauri) return;
+  history = await historyList();
+  emit();
+}
+
 export async function toggleLike(track: Track): Promise<boolean> {
   if (!isTauri) return false;
   const liked = await invoke<boolean>('like_toggle', { track });

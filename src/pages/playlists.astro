@@ -1,0 +1,63 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Playlists">
+  <div class="mb-8 flex items-center justify-between">
+    <h1 class="text-5xl font-semibold tracking-tight">Playlists</h1>
+    <div class="flex items-center gap-3">
+      <input id="pl-name" type="text" placeholder="Playlist name" class="h-14 w-56 rounded-full bg-surface-container-high px-6 text-sm outline-none placeholder:text-on-surface-variant focus:bg-surface-container-highest" />
+      <button id="new-playlist" class="press flex h-14 items-center gap-2 rounded-full bg-primary px-6 font-medium text-on-primary"><span class="ms fill">add</span>New playlist</button>
+    </div>
+  </div>
+  <div id="playlists" class="flex flex-wrap gap-4"></div>
+</Layout>
+<script>
+  import { createPlaylist, deletePlaylist, getPlaylists, subscribe } from '../lib/library';
+  import { confirmDialog, esc } from '../lib/ui';
+  import { navigate } from 'astro:transitions/client';
+
+  document.addEventListener('astro:page-load', () => {
+    const plEl = document.getElementById('playlists')!;
+    const draw = () => {
+      const lists = getPlaylists();
+      plEl.innerHTML = lists.length
+        ? lists
+            .map(
+              (p) => `<div class="playlist-card group" data-id="${p.id}">
+            <div class="relative aspect-square w-full">
+              <div class="absolute inset-0 grid place-items-center rounded-[32px] bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60" style="font-size:56px">queue_music</span></div>
+              <button data-del class="press absolute right-2 top-2 grid size-9 place-items-center rounded-full bg-surface-container/90 text-on-surface opacity-0 transition-opacity group-hover:opacity-100" aria-label="Delete playlist"><span class="ms">delete</span></button>
+            </div>
+            <div class="mt-3 truncate px-2 font-medium">${esc(p.name)}</div>
+            <div class="truncate px-2 text-sm text-on-surface-variant">${p.count} song${p.count === 1 ? '' : 's'}</div>
+          </div>`,
+            )
+            .join('')
+        : '<p class="text-on-surface-variant">No playlists yet. Make one and start adding songs.</p>';
+      plEl.querySelectorAll<HTMLElement>('.playlist-card').forEach((card) => {
+        const id = +card.dataset.id!;
+        card.onclick = async (e) => {
+          if ((e.target as HTMLElement).closest('[data-del]')) {
+            const pl = getPlaylists().find((p) => String(p.id) === id);
+            if (!(await confirmDialog(`Delete playlist "${pl?.name ?? ''}"?`))) return;
+            void deletePlaylist(id).then(draw);
+            return;
+          }
+          navigate(`/playlist?id=${id}`);
+        };
+      });
+    };
+    draw();
+    const sub = subscribe(draw);
+    document.getElementById('new-playlist')!.onclick = async () => {
+      const input = document.getElementById('pl-name') as HTMLInputElement;
+      const id = await createPlaylist(input.value);
+      input.value = '';
+      if (id) navigate(`/playlist?id=${id}`);
+    };
+    document.getElementById('pl-name')!.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') (document.getElementById('new-playlist') as HTMLButtonElement).click();
+    });
+    window.addEventListener('astro:before-swap', () => sub(), { once: true });
+  });
+</script>
