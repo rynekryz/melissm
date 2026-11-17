@@ -39,10 +39,10 @@ const deps = [
     ))}
   </div>
 
-  <div class="fixed right-8 top-1/2 z-10 hidden -translate-y-1/2 xl:block">
-    <div class="rounded-[28px] bg-surface-container p-3 shadow-xl shadow-black/30">
-      <p id="shooter-score" class="mb-2 hidden text-center text-sm font-medium tabular-nums">Score 0</p>
-      <canvas id="shooter-canvas" width="280" height="360" class="block cursor-pointer rounded-[20px]"></canvas>
+  <div class="fixed right-6 top-1/2 z-10 hidden -translate-y-1/2 2xl:block">
+    <div class="relative rounded-[28px] bg-surface-container p-3 shadow-xl shadow-black/30">
+      <p id="shooter-score" class="pointer-events-none absolute right-5 top-4 z-10 hidden font-mono text-lg font-semibold tabular-nums">0</p>
+      <canvas id="shooter-canvas" width="540" height="720" class="block h-[62vh] w-auto cursor-pointer rounded-[22px]"></canvas>
     </div>
   </div>
 </Layout>

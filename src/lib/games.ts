@@ -3,10 +3,10 @@ type Pt = { x: number; y: number };
 const cssVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const palette = () => ({
   bg: cssVar('--md-sys-color-surface-container-high'),
+  dot: cssVar('--md-sys-color-on-surface'),
   primary: cssVar('--md-sys-color-primary'),
   onPrimary: cssVar('--md-sys-color-on-primary'),
   tertiary: cssVar('--md-sys-color-tertiary'),
-  outline: cssVar('--md-sys-color-outline-variant'),
 });
 
 const keyDirs: Record<string, Pt> = {
@@ -20,11 +20,15 @@ const keyDirs: Record<string, Pt> = {
   ArrowRight: { x: 1, y: 0 },
 };
 
+const PITCH = 10;
+const DOT = 6.5;
+const SUB = 3;
+const CELL = PITCH * SUB;
+
 export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   const ctx = canvas.getContext('2d')!;
-  const CELL = 20;
-  const COLS = canvas.width / CELL;
-  const ROWS = canvas.height / CELL;
+  const COLS = Math.floor(canvas.width / CELL);
+  const ROWS = Math.floor(canvas.height / CELL);
   const dirs = [
     { x: 0, y: -1 },
     { x: 0, y: 1 },
@@ -51,15 +55,17 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     playing = !auto;
     score = 0;
     snake = [
-      { x: 7, y: 9 },
-      { x: 6, y: 9 },
-      { x: 5, y: 9 },
+      { x: (COLS / 2) | 0, y: (ROWS / 2) | 0 },
+      { x: (COLS / 2) | 0, y: (ROWS / 2) | 0 },
+      { x: (COLS / 2) | 0, y: (ROWS / 2) | 0 },
     ];
+    snake[1].x -= 1;
+    snake[2].x -= 2;
     dir = { x: 1, y: 0 };
     pending = null;
     placeFood();
     scoreEl.classList.toggle('hidden', auto);
-    scoreEl.textContent = 'Score 0';
+    scoreEl.textContent = '0';
   };
   const freeAround = (x: number, y: number) => dirs.filter((d) => inGrid(x + d.x, y + d.y) && !occupied(x + d.x, y + d.y)).length;
   const autoDir = () => {
@@ -100,45 +106,33 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     if (head.x === food.x && head.y === food.y) {
       if (playing) {
         score++;
-        scoreEl.textContent = `Score ${score}`;
+        scoreEl.textContent = String(score);
       }
       placeFood();
     } else snake.pop();
   };
-  const rr = (x: number, y: number, w: number, h: number, r: number) => {
+  const dotAt = (px: number, py: number, color: string, alpha: number) => {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
     ctx.beginPath();
-    if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, r);
-    else ctx.rect(x, y, w, h);
+    ctx.arc(px, py, DOT / 2, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  const block = (cx: number, cy: number, color: string, alpha: number) => {
+    for (let i = 0; i < SUB; i++)
+      for (let j = 0; j < SUB; j++) dotAt((cx * SUB + i) * PITCH + PITCH / 2, (cy * SUB + j) * PITCH + PITCH / 2, color, alpha);
   };
   const draw = () => {
     const p = palette();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = p.bg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = p.outline;
-    ctx.globalAlpha = 0.25;
-    for (let i = 1; i < COLS; i++) {
-      ctx.beginPath();
-      ctx.moveTo(i * CELL, 0);
-      ctx.lineTo(i * CELL, canvas.height);
-      ctx.stroke();
-    }
-    for (let j = 1; j < ROWS; j++) {
-      ctx.beginPath();
-      ctx.moveTo(0, j * CELL);
-      ctx.lineTo(canvas.width, j * CELL);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-    rr(food.x * CELL + 2, food.y * CELL + 2, CELL - 4, CELL - 4, 6);
-    ctx.fillStyle = p.tertiary;
-    ctx.fill();
-    snake.forEach((s, i) => {
-      ctx.globalAlpha = i === 0 ? 1 : Math.max(0.55, 1 - i * 0.04);
-      ctx.fillStyle = p.primary;
-      rr(s.x * CELL + 1.5, s.y * CELL + 1.5, CELL - 3, CELL - 3, 5);
-      ctx.fill();
-    });
-    ctx.globalAlpha = 1;
+    const maxX = COLS * SUB;
+    const maxY = ROWS * SUB;
+    for (let gx = 0; gx < maxX; gx++)
+      for (let gy = 0; gy < maxY; gy++) dotAt(gx * PITCH + PITCH / 2, gy * PITCH + PITCH / 2, p.dot, 0.07);
+    block(food.x, food.y, p.tertiary, 1);
+    snake.forEach((s, i) => block(s.x, s.y, i === 0 ? p.primary : p.primary, i === 0 ? 1 : Math.max(0.4, 1 - i * 0.03)));
   };
   const loop = (t: number) => {
     raf = requestAnimationFrame(loop);
@@ -148,6 +142,11 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     draw();
   };
   const onKey = (e: KeyboardEvent) => {
+    const el = e.target;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+      if (playing) reset(true);
+      return;
+    }
     if (!playing) return;
     const d = keyDirs[e.key];
     if (!d) return;
@@ -170,10 +169,12 @@ export function mountSnake(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
 
 export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   const ctx = canvas.getContext('2d')!;
+  const COLS = Math.floor(canvas.width / CELL);
+  const ROWS = Math.floor(canvas.height / CELL);
   const W = canvas.width;
   const H = canvas.height;
-  let ship: Pt = { x: W / 2, y: H - 40 };
-  let bullets: Pt[] = [];
+  let ship: Pt = { x: COLS / 2, y: ROWS - 3 };
+  let bullets: { x: number; y: number }[] = [];
   let enemies: Pt[] = [];
   let spawnAt = 0;
   let shootAt = 0;
@@ -182,104 +183,97 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
   let raf = 0;
   let prev = 0;
   const held = new Set<string>();
-  const keysDown = (name: keyof typeof keyDirs) => held.has(name);
 
   const reset = (auto: boolean) => {
     playing = !auto;
     score = 0;
-    ship = { x: W / 2, y: H - 40 };
+    ship = { x: COLS / 2, y: ROWS - 3 };
     bullets = [];
     enemies = [];
     spawnAt = 0;
     shootAt = 0;
     scoreEl.classList.toggle('hidden', auto);
-    scoreEl.textContent = 'Score 0';
+    scoreEl.textContent = '0';
   };
-  const rr = (x: number, y: number, w: number, h: number, r: number) => {
-    ctx.beginPath();
-    if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, r);
-    else ctx.rect(x, y, w, h);
+  const shoot = (t: number) => {
+    if (t > shootAt) {
+      bullets.push({ x: ship.x, y: ship.y - 1 });
+      shootAt = t + 240;
+    }
   };
   const tick = (t: number) => {
     const dt = Math.min(0.05, (t - prev) / 1000 || 0.016);
     prev = t;
-    const speed = playing ? 210 : 120;
-    const fall = playing ? 70 : 40;
+    const speed = playing ? 7 : 4.5;
+    const fall = playing ? 3 : 2;
     if (!playing) {
       const target = enemies.reduce<Pt | null>((low, e) => (!low || e.y > low.y ? e : low), null);
       if (target) {
         const dx = target.x - ship.x;
-        if (Math.abs(dx) > 6) ship.x += Math.sign(dx) * speed * dt;
-        if (Math.abs(dx) < 26 && t > shootAt) {
-          bullets.push({ x: ship.x, y: ship.y - 16 });
-          shootAt = t + 420;
-        }
+        if (Math.abs(dx) > 0.08) ship.x += Math.sign(dx) * Math.min(Math.abs(dx), speed * dt);
+        if (Math.abs(dx) < 0.7) shoot(t);
       } else {
-        ship.x += Math.sin(t / 900) * speed * dt * 0.4;
+        ship.x += Math.sin(t / 900) * dt * 2;
       }
     } else {
       let vx = 0;
       let vy = 0;
-      if (keysDown('a') || keysDown('ArrowLeft')) vx -= 1;
-      if (keysDown('d') || keysDown('ArrowRight')) vx += 1;
-      if (keysDown('w') || keysDown('ArrowUp')) vy -= 1;
-      if (keysDown('s') || keysDown('ArrowDown')) vy += 1;
-      ship.x = Math.max(16, Math.min(W - 16, ship.x + vx * speed * dt));
-      ship.y = Math.max(H * 0.5, Math.min(H - 24, ship.y + vy * speed * dt));
+      if (held.has('a') || held.has('ArrowLeft')) vx -= 1;
+      if (held.has('d') || held.has('ArrowRight')) vx += 1;
+      if (held.has('w') || held.has('ArrowUp')) vy -= 1;
+      if (held.has('s') || held.has('ArrowDown')) vy += 1;
+      ship.x = Math.max(0.5, Math.min(COLS - 1.5, ship.x + vx * speed * dt));
+      ship.y = Math.max(ROWS * 0.5, Math.min(ROWS - 1.5, ship.y + vy * speed * dt));
+      shoot(t);
     }
     if (t > spawnAt) {
-      enemies.push({ x: 20 + Math.random() * (W - 40), y: -12 });
-      spawnAt = t + (playing ? 650 : 950);
+      enemies.push({ x: (Math.random() * (COLS - 1)) | 0, y: -0.5 });
+      spawnAt = t + (playing ? 620 : 920);
     }
-    bullets.forEach((b) => (b.y -= 380 * dt));
-    bullets = bullets.filter((b) => b.y > -14);
+    bullets.forEach((b) => (b.y -= 14 * dt));
+    bullets = bullets.filter((b) => b.y > -0.5);
     enemies.forEach((e) => (e.y += fall * dt));
-    const dead: number[] = [];
-    enemies.forEach((e, i) => {
-      if (bullets.some((b) => Math.abs(b.x - e.x) < 13 && Math.abs(b.y - e.y) < 15)) dead.push(i);
-      else if (Math.abs(e.x - ship.x) < 16 && Math.abs(e.y - ship.y) < 16) dead.push(i);
-      else if (e.y > H - 26) dead.push(i);
-    });
-    for (const i of dead.reverse()) {
-      enemies.splice(i, 1);
-      if (playing) {
-        score++;
-        scoreEl.textContent = `Score ${score}`;
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      const hitByBullet = bullets.some((b) => Math.abs(b.x - e.x) < 0.6 && Math.abs(b.y - e.y) < 0.9);
+      const hitShip = Math.abs(e.x - ship.x) < 0.7 && Math.abs(e.y - ship.y) < 0.7;
+      if (hitByBullet || e.y > ROWS - 1.6) {
+        enemies.splice(i, 1);
+        if (playing) {
+          score++;
+          scoreEl.textContent = String(score);
+        }
+      } else if (hitShip && playing) {
+        reset(true);
+        return;
       }
     }
-    bullets.forEach((b, i) => {
-      if (enemies.some((e) => Math.abs(b.x - e.x) < 13 && Math.abs(b.y - e.y) < 15)) b.y = -99;
-    });
-    bullets = bullets.filter((b) => b.y > -14);
-    if (playing && enemies.some((e) => Math.abs(e.x - ship.x) < 16 && Math.abs(e.y - ship.y) < 16)) {
-      reset(true);
-      return;
-    }
+  };
+  const dotAt = (px: number, py: number, color: string, alpha: number) => {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(px, py, DOT / 2, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  const block = (cx: number, cy: number, color: string, alpha: number) => {
+    for (let i = 0; i < SUB; i++)
+      for (let j = 0; j < SUB; j++) dotAt((cx + i / SUB) * CELL + PITCH / 2, (cy + j / SUB) * CELL + PITCH / 2, color, alpha);
+  };
+  const single = (cx: number, cy: number, color: string, alpha: number) => {
+    dotAt(cx * CELL + CELL / 2, cy * CELL + CELL / 2, color, alpha);
   };
   const draw = () => {
     const p = palette();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = p.bg;
     ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = p.outline;
-    ctx.globalAlpha = 0.2;
-    ctx.strokeRect(1, 1, W - 2, H - 2);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = p.primary;
-    for (const b of bullets) {
-      rr(b.x - 2, b.y - 6, 4, 12, 2);
-      ctx.fill();
-    }
-    ctx.fillStyle = p.tertiary;
-    for (const e of enemies) {
-      rr(e.x - 9, e.y - 9, 18, 18, 5);
-      ctx.fill();
-    }
-    rr(ship.x - 11, ship.y - 11, 22, 22, 7);
-    ctx.fillStyle = p.onPrimary;
-    ctx.fill();
-    rr(ship.x - 4, ship.y - 16, 8, 8, 3);
-    ctx.fillStyle = p.primary;
-    ctx.fill();
+    for (let gx = 0; gx < COLS * SUB; gx++)
+      for (let gy = 0; gy < ROWS * SUB; gy++) dotAt(gx * PITCH + PITCH / 2, gy * PITCH + PITCH / 2, p.dot, 0.07);
+    for (const e of enemies) block(e.x, e.y, p.tertiary, 1);
+    for (const b of bullets) single(b.x, b.y, p.primary, 1);
+    block(ship.x, ship.y, p.onPrimary, 1);
+    single(ship.x + 0.16, ship.y - 0.55, p.primary, 1);
   };
   const loop = (t: number) => {
     raf = requestAnimationFrame(loop);
@@ -287,18 +281,17 @@ export function mountShooter(canvas: HTMLCanvasElement, scoreEl: HTMLElement) {
     tick(t);
     draw();
   };
-  const shoot = (t: number) => {
-    if (t > shootAt) {
-      bullets.push({ x: ship.x, y: ship.y - 16 });
-      shootAt = t + 260;
-    }
-  };
   const onKey = (e: KeyboardEvent) => {
+    const el = e.target;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+      if (playing) reset(true);
+      return;
+    }
+    if (!playing) return;
     const d = keyDirs[e.key];
     if (!d) return;
-    if (playing) e.preventDefault();
+    e.preventDefault();
     held.add(e.key);
-    shoot(performance.now());
   };
   const onKeyUp = (e: KeyboardEvent) => held.delete(e.key);
   const onClick = () => {
