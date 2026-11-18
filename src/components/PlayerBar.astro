@@ -164,10 +164,15 @@
   let fsOpen = false;
   let panelClose = true;
   let fusionOn = false;
+  let fusionUi = true;
   let lastSynced = '';
   const lycOffset = () => parseFloat(localStorage.getItem('melissm.lyrics_offset') ?? '0') || 0;
   const paintFusion = () => {
-    for (const id of ['p-fusion', 'fp-fusion']) $(id).querySelector('.ms')!.classList.toggle('text-primary', fusionOn);
+    for (const id of ['p-fusion', 'fp-fusion']) {
+      const el = $(id);
+      el.classList.toggle('hidden', !fusionUi);
+      el.querySelector('.ms')!.classList.toggle('text-primary', fusionOn && fusionUi);
+    }
   };
   const toggleFusion = () => {
     fusionOn = !fusionOn;
@@ -176,15 +181,22 @@
   };
   $('p-fusion').onclick = toggleFusion;
   $('fp-fusion').onclick = toggleFusion;
+  paintFusion();
   if (isTauri)
     void getSettings()
       .then((s) => {
         panelClose = s.panel_close !== '0';
-        fusionOn = s.fusion === '1';
+        fusionUi = s.fusion_ui !== '0';
+        fusionOn = fusionUi && s.fusion === '1';
         paintFusion();
       })
       .catch(() => {});
   window.addEventListener('melissm:panel-close', (e) => (panelClose = (e as CustomEvent<boolean>).detail));
+  window.addEventListener('melissm:fusion-ui', (e) => {
+    fusionUi = (e as CustomEvent<boolean>).detail;
+    if (!fusionUi) fusionOn = false;
+    paintFusion();
+  });
 
   const polar = (fn: (a: number) => number, steps = 220) => {
     let d = '';

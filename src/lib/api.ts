@@ -25,6 +25,7 @@ export const lyricsSetProvider = (provider: string, enabled: boolean) => invoke(
 export const lyricsSetOffset = (offset: number) => invoke('lyrics_set_offset', { offset });
 export const setPanelClose = (enabled: boolean) => invoke('set_panel_close', { enabled });
 export const setFusion = (enabled: boolean) => invoke('set_fusion', { enabled });
+export const setFusionUi = (enabled: boolean) => invoke('set_fusion_ui', { enabled });
 export const setTheme = (theme: { mode: ThemeMode; scheme: string; source: ThemeSource }) =>
   invoke<Record<string, string>>('set_theme', { theme });
 export const systemScale = () => invoke<number>('system_scale');

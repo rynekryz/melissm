@@ -65,6 +65,13 @@ import Layout from '../layouts/Layout.astro';
       </div>
       <button id="panel-toggle" class="switch" data-on="true"><span class="knob"></span></button>
     </div>
+    <div class="mb-5 flex items-center justify-between">
+      <div>
+        <p class="font-medium">Fussion</p>
+        <p class="text-sm text-on-surface-variant">Beat matched blends between songs. Turn this off to hide the toggle next to the player controls.</p>
+      </div>
+      <button id="fusion-ui-toggle" class="switch" data-on="true"><span class="knob"></span></button>
+    </div>
     <div>
       <p class="font-medium">UI scale</p>
       <p class="mb-4 text-sm text-on-surface-variant">Dynamic follows your system's text scaling, a touch smaller so more fits.</p>
@@ -212,7 +219,7 @@ import Layout from '../layouts/Layout.astro';
 </Layout>
 <script>
   import { loadOpts, saveOpts, pushTheme, applyScaleSoon, type ThemeOpts } from '../lib/theme';
-  import { cacheClear, cacheInfo, getSettings, lyricsSetOffset, lyricsSetProvider, setAutocache, setAutoload, setPanelClose, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
+  import { cacheClear, cacheInfo, getSettings, lyricsSetOffset, lyricsSetProvider, setAutocache, setAutoload, setFusion, setFusionUi, setPanelClose, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
   import { getQuality, getVolume, setVolume, setQuality, setCrossfade, type Quality } from '../lib/player';
   import { clearLikes, clearHistory } from '../lib/library';
   import { confirmDialog, esc } from '../lib/ui';
@@ -225,6 +232,7 @@ import Layout from '../layouts/Layout.astro';
     const schemeGroup = document.getElementById('scheme-group')!;
     const blurToggle = document.getElementById('blur-toggle')!;
     const panelToggle = document.getElementById('panel-toggle')!;
+    const fusionUiToggle = document.getElementById('fusion-ui-toggle')!;
     const scaleDynamic = document.getElementById('scale-dynamic')!;
     const scaleSlider = document.getElementById('scale-slider')!;
     const scaleInput = document.getElementById('scale-input') as HTMLInputElement;
@@ -400,6 +408,7 @@ import Layout from '../layouts/Layout.astro';
       lyrLrclib.classList.toggle('on', s.lyr_lrclib !== '0');
       lyrNetease.classList.toggle('on', s.lyr_netease !== '0');
       panelToggle.dataset.on = String(s.panel_close !== '0');
+      fusionUiToggle.dataset.on = String(s.fusion_ui !== '0');
       return s.autocache !== '0';
     });
     cacheToggle.addEventListener('click', async () => {
@@ -417,6 +426,13 @@ import Layout from '../layouts/Layout.astro';
       panelToggle.dataset.on = String(on);
       void setPanelClose(on);
       window.dispatchEvent(new CustomEvent('melissm:panel-close', { detail: on }));
+    });
+    fusionUiToggle.addEventListener('click', () => {
+      const on = (fusionUiToggle.dataset.on ?? 'true') !== 'true';
+      fusionUiToggle.dataset.on = String(on);
+      void setFusionUi(on);
+      if (!on) void setFusion(false);
+      window.dispatchEvent(new CustomEvent('melissm:fusion-ui', { detail: on }));
     });
     document.getElementById('clear-cache')!.addEventListener('click', async () => {
       if (!(await confirmDialog('Delete all downloaded songs?'))) return;

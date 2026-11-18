@@ -34,6 +34,7 @@ struct MixTarget {
     idx: usize,
     id: String,
     resume: bool,
+    from: usize,
 }
 
 #[derive(Default)]
@@ -59,6 +60,7 @@ struct AppState {
     fusion: Mutex<Fusion>,
     bpms: Mutex<HashMap<String, f64>>,
     bpms_pending: Mutex<HashSet<String>>,
+    in_points: Mutex<HashMap<String, f64>>,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -528,13 +530,39 @@ async fn fusion_preload(app: &AppHandle) {
         state.player.send(Cmd::CancelPreload);
         return;
     };
-    let id = state.queue.lock().unwrap().tracks.get(idx).map(|t| t.id.clone());
-    let Some(id) = id else { return };
+    let (id, dur) = match state.queue.lock().unwrap().tracks.get(idx) {
+        Some(t) => (t.id.clone(), t.duration),
+        None => return,
+    };
     let quality = state.quality.lock().unwrap().clone();
     let Ok((url, _dur, ua)) = resolve_url(&state, &id, &quality).await else {
         state.player.send(Cmd::CancelPreload);
         return;
     };
+    let mut pos = pos;
+    let bpm = state.bpms.lock().unwrap().get(&id).copied();
+    let pick = state.in_points.lock().unwrap().get(&id).copied();
+    if !resume {
+        if let Some(p) = pick {
+            pos = p;
+        }
+    }
+    if bpm.is_none() || (!resume && pick.is_none()) {
+        let fresh = state.bpms_pending.lock().unwrap().insert(id.clone());
+        if fresh {
+            let probe = analyze_target(url.clone(), ua.clone(), dur).await;
+            if let Some(b) = probe.bpm {
+                state.bpms.lock().unwrap().insert(id.clone(), b);
+            }
+            if let Some(p) = probe.pick {
+                state.in_points.lock().unwrap().insert(id.clone(), p);
+                if !resume {
+                    pos = p;
+                }
+            }
+            state.bpms_pending.lock().unwrap().remove(&id);
+        }
+    }
     let tag = state.tags.fetch_add(1, Ordering::SeqCst) + 1;
     {
         let mut f = state.fusion.lock().unwrap();
@@ -542,37 +570,27 @@ async fn fusion_preload(app: &AppHandle) {
         if !f.enabled || q.index != cur as isize || q.loading {
             return;
         }
-        f.target = Some(MixTarget { idx, id: id.clone(), resume });
+        f.target = Some(MixTarget { idx, id, resume, from: cur });
         q.expected_next = Some((tag, idx));
     }
-    state.player.send(Cmd::PreloadAt { url: url.clone(), ua: ua.clone(), tag, position: pos });
-    ensure_bpm(app, id, url, ua);
+    state.player.send(Cmd::PreloadAt { url, ua, tag, position: pos });
 }
 
-fn ensure_bpm(app: &AppHandle, id: String, url: String, ua: String) {
-    if url.starts_with("file:") {
-        return;
-    }
-    {
-        let state = app.state::<AppState>();
-        if state.bpms.lock().unwrap().contains_key(&id) {
-            return;
-        }
-        if !state.bpms_pending.lock().unwrap().insert(id.clone()) {
-            return;
-        }
-    }
-    let handle = app.clone();
+struct Probe {
+    bpm: Option<f64>,
+    pick: Option<f64>,
+}
+
+async fn analyze_target(url: String, ua: String, duration: f64) -> Probe {
     tauri::async_runtime::spawn_blocking(move || {
-        if let Some(bpm) = crate::audio::analyze_bpm(&url, &ua) {
-            let state = handle.state::<AppState>();
-            state.bpms.lock().unwrap().insert(id.clone(), bpm);
-        }
-        handle.state::<AppState>().bpms_pending.lock().unwrap().remove(&id);
-    });
+        let a = crate::audio::analyze(&url, &ua, duration);
+        Probe { bpm: a.bpm, pick: a.pick }
+    })
+    .await
+    .unwrap_or(Probe { bpm: None, pick: None })
 }
 
-fn fusion_lull(app: &AppHandle, position: f64, fade: f64) {
+fn fusion_lull(app: &AppHandle, _position: f64, fade: f64, urgent: bool) {
     let state = app.state::<AppState>();
     let target = {
         let f = state.fusion.lock().unwrap();
@@ -584,13 +602,12 @@ fn fusion_lull(app: &AppHandle, position: f64, fade: f64) {
             None => return,
         }
     };
-    let (cur, dur) = {
+    let cur = {
         let q = state.queue.lock().unwrap();
-        let cur = q.index.max(0) as usize;
         if q.loading || (q.index < 0) {
             return;
         }
-        (cur, q.tracks.get(cur).map(|t| t.duration).unwrap_or(0.0))
+        q.index as usize
     };
     if target.idx == cur {
         return;
@@ -602,7 +619,7 @@ fn fusion_lull(app: &AppHandle, position: f64, fade: f64) {
             Some((_, a)) => match bpms.get(&target.id) {
                 Some(t) if *t > 0.0 => {
                     let ratio = a / t;
-                    if (0.93..=1.07).contains(&ratio) {
+                    if (0.88..=1.12).contains(&ratio) {
                         (ratio, true)
                     } else {
                         (1.0, false)
@@ -619,13 +636,6 @@ fn fusion_lull(app: &AppHandle, position: f64, fade: f64) {
             return;
         }
         f.target = None;
-        f.parked.retain(|(i, _)| *i != cur);
-        if dur > 0.0 && position + 4.0 < dur - 12.0 {
-            f.parked.push((cur, position + 4.0));
-            if f.parked.len() > 4 {
-                f.parked.remove(0);
-            }
-        }
         if target.resume {
             f.parked.retain(|(i, _)| *i != target.idx);
         }
@@ -633,15 +643,34 @@ fn fusion_lull(app: &AppHandle, position: f64, fade: f64) {
         f.mixes = f.mixes.wrapping_add(1);
     }
     state.player.send(Cmd::MixTempo(ratio));
-    state.player.send(Cmd::Mix(if matched { fade + 1.5 } else { fade }));
+    let fade = if matched { fade.max(7.0) + 3.0 } else { fade };
+    state.player.send(Cmd::Mix { fade, urgent });
 }
 
-fn fusion_mixed(app: &AppHandle) {
+fn fusion_mixed(app: &AppHandle, position: f64) {
     let state = app.state::<AppState>();
     let target = match state.fusion.lock().unwrap().pending.take() {
         Some(t) => t,
         None => return,
     };
+    {
+        let mut f = state.fusion.lock().unwrap();
+        let dur = state
+            .queue
+            .lock()
+            .unwrap()
+            .tracks
+            .get(target.from)
+            .map(|t| t.duration)
+            .unwrap_or(0.0);
+        if dur > 0.0 && position + 0.4 < dur - 12.0 {
+            f.parked.retain(|(i, _)| *i != target.from);
+            f.parked.push((target.from, position + 0.4));
+            if f.parked.len() > 4 {
+                f.parked.remove(0);
+            }
+        }
+    }
     let (at, track) = {
         let q = state.queue.lock().unwrap();
         match q.tracks.iter().position(|t| t.id == target.id) {
@@ -662,6 +691,11 @@ fn fusion_mixed(app: &AppHandle) {
     update_artwork(app.clone(), track.clone());
     let a = app.clone();
     tauri::async_runtime::spawn(async move { preload_next(a).await });
+}
+
+#[tauri::command]
+fn set_fusion_ui(state: State<'_, AppState>, enabled: bool) {
+    state.store.set_setting("fusion_ui", if enabled { "1" } else { "0" });
 }
 
 #[tauri::command]
@@ -948,7 +982,7 @@ fn get_settings(state: State<'_, AppState>) -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
     for key in [
         "volume", "speed", "pitch", "eq", "quality", "crossfade", "shuffle", "repeat", "autocache", "autoload",
-        "lyr_lrclib", "lyr_netease", "lyrics_offset", "panel_close", "fusion",
+        "lyr_lrclib", "lyr_netease", "lyrics_offset", "panel_close", "fusion", "fusion_ui",
     ] {
         m.insert(key.to_string(), state.store.setting(key).unwrap_or_default());
     }
@@ -1291,8 +1325,8 @@ fn main() {
                     Event::Failed(msg) => {
                         let _ = cb_app.emit("playback-failed", msg);
                     }
-                    Event::Lull { position, fade } => {
-                        fusion_lull(&cb_app, position, fade);
+                    Event::Lull { position, fade, urgent } => {
+                        fusion_lull(&cb_app, position, fade, urgent);
                     }
                     Event::Bpm(bpm) => {
                         if let Some(state) = cb_app.try_state::<AppState>() {
@@ -1301,12 +1335,18 @@ fn main() {
                                 q.tracks.get(q.index.max(0) as usize).map(|t| t.id.clone())
                             };
                             if let Some(id) = id {
-                                state.bpms.lock().unwrap().insert(id, bpm);
+                                let mut map = state.bpms.lock().unwrap();
+                                let keep = map
+                                    .get(&id)
+                                    .is_some_and(|old| (*old - bpm).abs() > old * 0.08);
+                                if !keep {
+                                    map.insert(id, bpm);
+                                }
                             }
                         }
                     }
-                    Event::Mixed => {
-                        fusion_mixed(&cb_app);
+                    Event::Mixed { position } => {
+                        fusion_mixed(&cb_app, position);
                     }
                     Event::MixFailed => {
                         if let Some(state) = cb_app.try_state::<AppState>() {
@@ -1365,6 +1405,7 @@ fn main() {
                 }),
                 bpms: Mutex::new(HashMap::new()),
                 bpms_pending: Mutex::new(HashSet::new()),
+                in_points: Mutex::new(HashMap::new()),
                 quality: Mutex::new(store.setting("quality").unwrap_or_else(|| "max".into())),
                 tags: AtomicU64::new(1),
             });
@@ -1413,7 +1454,7 @@ fn main() {
             likes_list, like_toggle, likes_clear, history_list, history_remove, history_clear,
             store_import, playlists_list, playlist_create, playlist_rename, playlist_delete,
             playlist_tracks, playlist_add, playlist_remove, lyrics, lyrics_get_custom, lyrics_save_custom,
-            lyrics_delete_custom, lyrics_set_provider, lyrics_set_offset, set_panel_close, set_fusion, set_theme,
+            lyrics_delete_custom, lyrics_set_provider, lyrics_set_offset, set_panel_close, set_fusion, set_fusion_ui, set_theme,
             system_scale, toggle_fullscreen
         ])
         .build(tauri::generate_context!())
