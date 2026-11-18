@@ -491,7 +491,16 @@ async fn fusion_preload(app: &AppHandle) {
                     None
                 }
             });
-            resume.or_else(|| q.peek_next(cur).filter(|i| *i != cur).map(|i| (cur, i, 0.0, false)))
+            resume.or_else(|| {
+                q.peek_next(cur).filter(|i| *i != cur).map(|i| {
+                    let d = q.tracks[i].duration;
+                    let mut pos = 0.0;
+                    if d > 90.0 {
+                        pos = (d * 0.33).clamp(25.0, 75.0).min(d - 60.0);
+                    }
+                    (cur, i, pos, false)
+                })
+            })
         }
     };
     let Some((cur, idx, pos, resume)) = choice else {
@@ -548,8 +557,8 @@ fn fusion_lull(app: &AppHandle, position: f64) {
         }
         f.target = None;
         f.parked.retain(|(i, _)| *i != cur);
-        if dur > 0.0 && position + 3.5 < dur - 12.0 {
-            f.parked.push((cur, position + 3.5));
+        if dur > 0.0 && position + 4.0 < dur - 12.0 {
+            f.parked.push((cur, position + 4.0));
             if f.parked.len() > 4 {
                 f.parked.remove(0);
             }
@@ -559,7 +568,7 @@ fn fusion_lull(app: &AppHandle, position: f64) {
         }
         f.pending = Some(target);
     }
-    state.player.send(Cmd::Mix(2.4));
+    state.player.send(Cmd::Mix(3.2));
 }
 
 fn fusion_mixed(app: &AppHandle) {

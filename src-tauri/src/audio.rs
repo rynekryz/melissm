@@ -208,6 +208,7 @@ fn run(
     let mut mix_pos = 0.0f64;
     let mut last_mix = Instant::now() - Duration::from_secs(600);
     let mut pending_seek = [None::<f64>; 2];
+    let mut loud = [false; 2];
 
     loop {
         match rx.recv_timeout(Duration::from_millis(60)) {
@@ -225,6 +226,7 @@ fn run(
                 mix_pos = 0.0;
                 quiet = [None, None];
                 pending_seek = [None, None];
+                loud = [false, false];
                 last_mix = Instant::now() - Duration::from_secs(600);
                 chains[0].gain = 1.0;
                 let _ = app.emit("player-state", Status { playing: true, position: 0.0, duration });
@@ -236,6 +238,7 @@ fn run(
                     chains[other].set_uri(&url, &ua, tag);
                     chains[other].gain = 1.0;
                     chains[other].apply_volume(volume);
+                    loud[other] = false;
                     let _ = chains[other].playbin.set_state(State::Paused);
                 }
             }
@@ -246,6 +249,7 @@ fn run(
                     chains[other].set_uri(&url, &ua, tag);
                     chains[other].gain = 1.0;
                     chains[other].apply_volume(volume);
+                    loud[other] = false;
                     let _ = chains[other].playbin.set_state(State::Paused);
                     pending_seek[other] = if position > 0.5 { Some(position) } else { None };
                 }
@@ -319,6 +323,7 @@ fn run(
             Ok(Cmd::Mix(s)) => {
                 let other = 1 - active;
                 if !mixing && chains[other].prepared && chains[active].playbin.current_state() == State::Playing {
+                    chains[other].gain = 0.0;
                     chains[other].apply_volume(volume);
                     let _ = chains[other].playbin.set_state(State::Playing);
                     mix_secs = f64::from(s).max(0.8);
@@ -326,6 +331,7 @@ fn run(
                     mixing = true;
                     fading = false;
                     quiet = [None, None];
+                    loud = [false, false];
                 } else if let Some(f) = cb.lock().unwrap().as_ref() {
                     f(Event::MixFailed);
                 }
@@ -375,10 +381,11 @@ fn run(
         if mixing {
             mix_pos += 0.06;
             let k = (mix_pos / mix_secs).min(1.0);
-            chains[active].gain = 1.0 - k;
+            let ang = k * std::f64::consts::FRAC_PI_2;
+            chains[active].gain = ang.cos();
             chains[active].apply_volume(volume);
             let other = 1 - active;
-            chains[other].gain = k;
+            chains[other].gain = ang.sin();
             chains[other].apply_volume(volume);
             if k >= 1.0 {
                 chains[active].stop();
@@ -414,15 +421,18 @@ fn run(
                                         .fold(f64::NEG_INFINITY, f64::max)
                                 })
                                 .unwrap_or(f64::NEG_INFINITY);
-                            if rms < -28.0 {
+                            if rms > -18.0 {
+                                quiet[ci] = None;
+                                loud[ci] = true;
+                            } else if rms < -28.0 && loud[ci] {
                                 let now = Instant::now();
                                 let since = *quiet[ci].get_or_insert(now);
                                 if now.duration_since(since) >= Duration::from_millis(1000)
-                                    && last_mix.elapsed() >= Duration::from_secs(18)
+                                    && last_mix.elapsed() >= Duration::from_secs(20)
                                 {
                                     if let Some(pos) = chains[ci].playbin.query_position::<ClockTime>() {
                                         let p = pos.seconds() as f64;
-                                        if p >= 20.0 && duration - p >= 8.0 {
+                                        if p >= 20.0 && duration - p >= 10.0 {
                                             quiet[ci] = None;
                                             last_mix = now;
                                             if let Some(f) = cb.lock().unwrap().as_ref() {
