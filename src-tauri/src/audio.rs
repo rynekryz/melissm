@@ -5,6 +5,7 @@ use gstreamer::{
 };
 use serde::Serialize;
 use std::{
+    collections::VecDeque,
     sync::{
         mpsc::{self, RecvTimeoutError},
         Arc, Mutex,
@@ -26,6 +27,8 @@ pub enum Cmd {
     Volume(f32),
     Fade(u32),
     Mix(f64),
+    MixTempo(f64),
+    TempoReset,
     MixClock,
 }
 
@@ -34,6 +37,7 @@ pub enum Event {
     Failed(String),
     Status { playing: bool, position: f64 },
     Lull { position: f64, fade: f64 },
+    Bpm(f64),
     Mixed,
     MixFailed,
 }
@@ -71,7 +75,7 @@ fn build_filter() -> Result<Filter, gstreamer::glib::BoolError> {
     pitch.link(&eq)?;
     eq.link(&level)?;
     level.set_property("post-messages", true);
-    level.set_property("interval", ClockTime::from_mseconds(200));
+    level.set_property("interval", ClockTime::from_mseconds(20));
     let sink = pitch
         .static_pad("sink")
         .ok_or_else(|| gstreamer::glib::bool_error!("pitch has no sink pad"))?;
@@ -136,6 +140,7 @@ pub struct Player {
     tx: mpsc::Sender<Cmd>,
     pub filters: Arc<Mutex<Vec<Filter>>>,
     pub cb: Callback,
+    speed: Arc<Mutex<f64>>,
 }
 
 impl Player {
@@ -144,10 +149,12 @@ impl Player {
         let (tx, rx) = mpsc::channel();
         let filters: Arc<Mutex<Vec<Filter>>> = Arc::new(Mutex::new(Vec::new()));
         let cb: Callback = Arc::new(Mutex::new(None));
+        let speed: Arc<Mutex<f64>> = Arc::new(Mutex::new(init.speed));
         let f2 = filters.clone();
         let c2 = cb.clone();
-        thread::spawn(move || run(app, rx, f2, c2, init));
-        Self { tx, filters, cb }
+        let s2 = speed.clone();
+        thread::spawn(move || run(app, rx, f2, c2, s2, init));
+        Self { tx, filters, cb, speed }
     }
 
     pub fn send(&self, cmd: Cmd) {
@@ -155,9 +162,11 @@ impl Player {
     }
 
     pub fn set_speed(&self, value: f64) {
+        *self.speed.lock().unwrap() = value;
         for f in self.filters.lock().unwrap().iter() {
             f.pitch.set_property("tempo", value.clamp(0.5, 2.0) as f32);
         }
+        self.send(Cmd::TempoReset);
     }
 
     pub fn set_pitch(&self, value: f64) {
@@ -173,11 +182,168 @@ impl Player {
     }
 }
 
+const TEMPO_RATE: f64 = 50.0;
+
+struct Tempo {
+    hist: VecDeque<f64>,
+    prev: f64,
+}
+
+impl Tempo {
+    fn new() -> Self {
+        Self { hist: VecDeque::with_capacity(600), prev: f64::NEG_INFINITY }
+    }
+
+    fn reset(&mut self) {
+        self.hist.clear();
+        self.prev = f64::NEG_INFINITY;
+    }
+
+    fn push(&mut self, rms: f64) {
+        if !rms.is_finite() {
+            return;
+        }
+        let onset = if self.prev.is_finite() { (rms - self.prev).max(0.0) } else { 0.0 };
+        self.prev = rms;
+        if self.hist.len() >= 600 {
+            self.hist.pop_front();
+        }
+        self.hist.push_back(onset);
+    }
+
+    fn estimate(&self) -> Option<f64> {
+        let n = self.hist.len();
+        if n < 300 {
+            return None;
+        }
+        let mean = self.hist.iter().sum::<f64>() / n as f64;
+        let x: Vec<f64> = self.hist.iter().map(|v| v - mean).collect();
+        let mut rs = [0.0f64; 51];
+        for lag in 16..=50usize {
+            if lag >= n {
+                continue;
+            }
+            let m = n - lag;
+            let mut num = 0.0;
+            let mut ea = 0.0;
+            let mut eb = 0.0;
+            for i in 0..m {
+                let a = x[i + lag];
+                let b = x[i];
+                num += a * b;
+                ea += a * a;
+                eb += b * b;
+            }
+            if ea > 0.0 && eb > 0.0 {
+                rs[lag] = num / (ea.sqrt() * eb.sqrt());
+            }
+        }
+        let mut best = 16usize;
+        for lag in 16..=50usize {
+            if rs[lag] > rs[best] {
+                best = lag;
+            }
+        }
+        let peak = rs[best];
+        if peak < 0.15 {
+            return None;
+        }
+        let mut rival = 0.0f64;
+        for lag in 16..=50usize {
+            if lag.abs_diff(best) > 4 && rs[lag] > rival {
+                rival = rs[lag];
+            }
+        }
+        if peak < rival * 1.25 {
+            return None;
+        }
+        let mut period = best as f64;
+        if best > 16 && best < 50 {
+            let l = rs[best - 1];
+            let r = rs[best + 1];
+            let d = l - 2.0 * rs[best] + r;
+            if d.abs() > 1e-9 {
+                period += 0.5 * (l - r) / d;
+            }
+        }
+        if period <= 0.0 {
+            return None;
+        }
+        let mut bpm = TEMPO_RATE * 60.0 / period;
+        while bpm < 80.0 {
+            bpm *= 2.0;
+        }
+        while bpm > 160.0 {
+            bpm /= 2.0;
+        }
+        bpm.is_finite().then_some(bpm)
+    }
+}
+
+pub fn analyze_bpm(url: &str, ua: &str) -> Option<f64> {
+    use gstreamer::MessageView;
+    gstreamer::init().ok()?;
+    let playbin = ElementFactory::make("playbin").build().ok()?;
+    let level = ElementFactory::make("level").build().ok()?;
+    level.set_property("post-messages", true);
+    level.set_property("interval", ClockTime::from_mseconds(20));
+    playbin.set_property("audio-filter", &level);
+    let sink = ElementFactory::make("fakesink").build().ok()?;
+    sink.set_property("sync", false);
+    playbin.set_property("audio-sink", &sink);
+    let vsink = ElementFactory::make("fakesink").build().ok()?;
+    vsink.set_property("sync", false);
+    playbin.set_property("video-sink", &vsink);
+    let ua = ua.to_string();
+    playbin.connect("source-setup", false, move |values| {
+        if let Ok(src) = values[1].get::<gstreamer::Element>() {
+            if !ua.is_empty() && src.has_property("user-agent", Some(Type::STRING)) {
+                src.set_property("user-agent", ua.as_str());
+            }
+        }
+        None
+    });
+    playbin.set_property("uri", url);
+    if playbin.set_state(State::Playing).is_err() {
+        return None;
+    }
+    let bus = playbin.bus()?;
+    let mut tempo = Tempo::new();
+    let start = Instant::now();
+    loop {
+        if start.elapsed() > Duration::from_secs(20) {
+            break;
+        }
+        let Some(msg) = bus.timed_pop(ClockTime::from_mseconds(100)) else { continue };
+        if let Some(st) = msg.structure() {
+            if st.name() == "level" {
+                if let Ok(a) = st.get::<gstreamer::glib::ValueArray>("rms") {
+                    let rms = a
+                        .as_slice()
+                        .iter()
+                        .filter_map(|v| v.get::<f64>().ok())
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    tempo.push(rms);
+                    if tempo.hist.len() >= 500 {
+                        break;
+                    }
+                }
+            }
+        }
+        if matches!(msg.view(), MessageView::Eos(..) | MessageView::Error(..)) {
+            break;
+        }
+    }
+    let _ = playbin.set_state(State::Null);
+    tempo.estimate()
+}
+
 fn run(
     app: AppHandle,
     rx: mpsc::Receiver<Cmd>,
     filters: Arc<Mutex<Vec<Filter>>>,
     cb: Callback,
+    speed: Arc<Mutex<f64>>,
     init: Initial,
 ) {
     if gstreamer::init().is_err() {
@@ -214,6 +380,10 @@ fn run(
     let mut dip = [None::<Instant>; 2];
     let mut mild = [None::<Instant>; 2];
     let mut tail_sent = [false; 2];
+    let mut tempo = Tempo::new();
+    let mut tempo_ratio = [1.0f64; 2];
+    let mut bpm_last = 0.0f64;
+    let mut bpm_tick = Instant::now();
 
     loop {
         match rx.recv_timeout(Duration::from_millis(60)) {
@@ -237,6 +407,12 @@ fn run(
                 mild = [None, None];
                 tail_sent = [false, false];
                 last_mix = Instant::now();
+                tempo.reset();
+                tempo_ratio = [1.0, 1.0];
+                bpm_last = 0.0;
+                let user = *speed.lock().unwrap();
+                chains[0].filter.pitch.set_property("tempo", user.clamp(0.5, 2.0) as f32);
+                chains[1].filter.pitch.set_property("tempo", user.clamp(0.5, 2.0) as f32);
                 chains[0].gain = 1.0;
                 let _ = app.emit("player-state", Status { playing: true, position: 0.0, duration });
             }
@@ -247,6 +423,8 @@ fn run(
                     chains[other].set_uri(&url, &ua, tag);
                     chains[other].gain = 1.0;
                     chains[other].apply_volume(volume);
+                    chains[other].filter.pitch.set_property("tempo", speed.lock().unwrap().clamp(0.5, 2.0) as f32);
+                    tempo_ratio[other] = 1.0;
                     loud[other] = false;
                     let _ = chains[other].playbin.set_state(State::Paused);
                 }
@@ -258,6 +436,8 @@ fn run(
                     chains[other].set_uri(&url, &ua, tag);
                     chains[other].gain = 1.0;
                     chains[other].apply_volume(volume);
+                    chains[other].filter.pitch.set_property("tempo", speed.lock().unwrap().clamp(0.5, 2.0) as f32);
+                    tempo_ratio[other] = 1.0;
                     loud[other] = false;
                     let _ = chains[other].playbin.set_state(State::Paused);
                     pending_seek[other] = if position > 0.5 { Some(position) } else { None };
@@ -335,6 +515,20 @@ fn run(
                 dip = [None, None];
                 mild = [None, None];
                 tail_sent = [false, false];
+                tempo.reset();
+                bpm_last = 0.0;
+            }
+            Ok(Cmd::TempoReset) => {
+                tempo_ratio = [1.0, 1.0];
+            }
+            Ok(Cmd::MixTempo(ratio)) => {
+                let other = 1 - active;
+                if chains[other].prepared {
+                    let user = *speed.lock().unwrap();
+                    let value = (user * ratio.clamp(0.9, 1.1)).clamp(0.5, 2.0);
+                    chains[other].filter.pitch.set_property("tempo", value as f32);
+                    tempo_ratio[other] = value / user.max(0.5);
+                }
             }
             Ok(Cmd::Mix(s)) => {
                 let other = 1 - active;
@@ -404,6 +598,9 @@ fn run(
             chains[other].gain = ang.sin();
             chains[other].apply_volume(volume);
             if k >= 1.0 {
+                let user = *speed.lock().unwrap();
+                chains[active].filter.pitch.set_property("tempo", user.clamp(0.5, 2.0) as f32);
+                tempo_ratio[active] = 1.0;
                 chains[active].stop();
                 chains[active].gain = 1.0;
                 active = other;
@@ -417,6 +614,8 @@ fn run(
                 dip = [None, None];
                 mild = [None, None];
                 tail_sent = [false, false];
+                tempo.reset();
+                bpm_last = 0.0;
                 if let Some(f) = cb.lock().unwrap().as_ref() {
                     f(Event::Mixed);
                 }
@@ -448,6 +647,7 @@ fn run(
                                     rms
                                 };
                             }
+                            tempo.push(rms);
                             if rms > -18.0 {
                                 quiet[ci] = None;
                                 loud[ci] = true;
@@ -457,20 +657,20 @@ fn run(
                             if let Some(pos) = chains[ci].playbin.query_position::<ClockTime>() {
                                 let p = pos.seconds() as f64;
                                 let remain = duration - p;
-                                let can = p >= 20.0 && remain >= 6.0 && loud[ci];
+                                let can = p >= 15.0 && remain >= 5.5 && loud[ci];
                                 let mut fire: Option<f64> = None;
                                 if can && rms < -28.0 {
                                     let since = *quiet[ci].get_or_insert(now);
-                                    if now.duration_since(since) >= Duration::from_millis(900) {
-                                        fire = Some(3.2);
+                                    if now.duration_since(since) >= Duration::from_millis(700) {
+                                        fire = Some(5.0);
                                     }
                                 } else {
                                     quiet[ci] = None;
                                 }
-                                if can && avg > -24.0 && rms < avg - 7.0 {
+                                if can && avg > -24.0 && rms < avg - 6.0 {
                                     let since = *dip[ci].get_or_insert(now);
-                                    if now.duration_since(since) >= Duration::from_millis(700) {
-                                        fire = Some(3.2);
+                                    if now.duration_since(since) >= Duration::from_millis(500) {
+                                        fire = Some(5.0);
                                     }
                                 } else {
                                     dip[ci] = None;
@@ -478,23 +678,23 @@ fn run(
                                 if fire.is_none()
                                     && loud[ci]
                                     && duration > 0.0
-                                    && p >= 15.0
-                                    && remain <= 5.0
-                                    && remain >= 0.8
+                                    && p >= 12.0
+                                    && remain <= 6.0
+                                    && remain >= 0.6
                                     && !tail_sent[ci]
                                 {
                                     tail_sent[ci] = true;
-                                    fire = Some(3.2);
+                                    fire = Some(3.8);
                                 }
                                 if fire.is_none() {
                                     let gap = last_mix.elapsed();
-                                    if gap >= Duration::from_secs(75) && p >= 35.0 && remain >= 10.0 {
-                                        if gap >= Duration::from_secs(95) {
-                                            fire = Some(5.0);
-                                        } else if avg.is_finite() && rms < avg - 1.5 {
+                                    if gap >= Duration::from_secs(45) && p >= 25.0 && remain >= 8.0 {
+                                        if gap >= Duration::from_secs(60) {
+                                            fire = Some(6.0);
+                                        } else if avg.is_finite() && rms < avg - 1.0 {
                                             let since = *mild[ci].get_or_insert(now);
-                                            if now.duration_since(since) >= Duration::from_millis(400) {
-                                                fire = Some(4.5);
+                                            if now.duration_since(since) >= Duration::from_millis(300) {
+                                                fire = Some(5.5);
                                             }
                                         } else {
                                             mild[ci] = None;
@@ -512,6 +712,18 @@ fn run(
                                         f(Event::Lull { position: p, fade });
                                     }
                                 }
+                            }
+                            if bpm_tick.elapsed() >= Duration::from_secs(2) {
+                                if let Some(bpm) = tempo.estimate() {
+                                    let media = bpm / tempo_ratio[ci].max(0.5);
+                                    if (media - bpm_last).abs() > 1.5 {
+                                        bpm_last = media;
+                                        if let Some(f) = cb.lock().unwrap().as_ref() {
+                                            f(Event::Bpm(media));
+                                        }
+                                    }
+                                }
+                                bpm_tick = Instant::now();
                             }
                         }
                     }

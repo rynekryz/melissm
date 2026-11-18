@@ -16,7 +16,7 @@ use lyrics::Lyrics;
 use queue::{QueueState, Repeat, Snapshot};
 use serde::Serialize;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap, HashSet},
     sync::atomic::{AtomicU64, Ordering},
     sync::Mutex,
 };
@@ -42,6 +42,7 @@ struct Fusion {
     parked: Vec<(usize, f64)>,
     target: Option<MixTarget>,
     pending: Option<MixTarget>,
+    mixes: u32,
 }
 
 struct AppState {
@@ -56,6 +57,8 @@ struct AppState {
     quality: Mutex<String>,
     tags: AtomicU64,
     fusion: Mutex<Fusion>,
+    bpms: Mutex<HashMap<String, f64>>,
+    bpms_pending: Mutex<HashSet<String>>,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -466,9 +469,9 @@ async fn preload_next(app: AppHandle) {
 
 async fn fusion_preload(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let (enabled, parked, ready) = {
+    let (enabled, parked, ready, mixes) = {
         let f = state.fusion.lock().unwrap();
-        (f.enabled, f.parked.clone(), f.target.is_some())
+        (f.enabled, f.parked.clone(), f.target.is_some(), f.mixes)
     };
     if !enabled || ready {
         return;
@@ -480,6 +483,24 @@ async fn fusion_preload(app: &AppHandle) {
             None
         } else {
             let cur = cur as usize;
+            let deep = (mixes % 4 == 3).then(|| {
+                let start = cur + 2;
+                if start >= q.tracks.len() {
+                    return None;
+                }
+                let span = q.tracks.len() - start;
+                let idx = if span > 1 && (mixes as usize / 4) % 3 == 0 {
+                    q.tracks.len() - 1
+                } else {
+                    start + (mixes as usize * 7 + 3) % span
+                };
+                let d = q.tracks[idx].duration;
+                let mut pos = 0.0;
+                if d > 90.0 {
+                    pos = (d * 0.33).clamp(25.0, 75.0).min(d - 60.0);
+                }
+                Some((cur, idx, pos, false))
+            });
             let resume = parked.iter().rev().find_map(|(i, p)| {
                 if *i == cur || *i >= q.tracks.len() {
                     return None;
@@ -491,7 +512,7 @@ async fn fusion_preload(app: &AppHandle) {
                     None
                 }
             });
-            resume.or_else(|| {
+            deep.flatten().or(resume).or_else(|| {
                 q.peek_next(cur).filter(|i| *i != cur).map(|i| {
                     let d = q.tracks[i].duration;
                     let mut pos = 0.0;
@@ -521,10 +542,34 @@ async fn fusion_preload(app: &AppHandle) {
         if !f.enabled || q.index != cur as isize || q.loading {
             return;
         }
-        f.target = Some(MixTarget { idx, id, resume });
+        f.target = Some(MixTarget { idx, id: id.clone(), resume });
         q.expected_next = Some((tag, idx));
     }
-    state.player.send(Cmd::PreloadAt { url, ua, tag, position: pos });
+    state.player.send(Cmd::PreloadAt { url: url.clone(), ua: ua.clone(), tag, position: pos });
+    ensure_bpm(app, id, url, ua);
+}
+
+fn ensure_bpm(app: &AppHandle, id: String, url: String, ua: String) {
+    if url.starts_with("file:") {
+        return;
+    }
+    {
+        let state = app.state::<AppState>();
+        if state.bpms.lock().unwrap().contains_key(&id) {
+            return;
+        }
+        if !state.bpms_pending.lock().unwrap().insert(id.clone()) {
+            return;
+        }
+    }
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(bpm) = crate::audio::analyze_bpm(&url, &ua) {
+            let state = handle.state::<AppState>();
+            state.bpms.lock().unwrap().insert(id.clone(), bpm);
+        }
+        handle.state::<AppState>().bpms_pending.lock().unwrap().remove(&id);
+    });
 }
 
 fn fusion_lull(app: &AppHandle, position: f64, fade: f64) {
@@ -550,6 +595,24 @@ fn fusion_lull(app: &AppHandle, position: f64, fade: f64) {
     if target.idx == cur {
         return;
     }
+    let (ratio, matched) = {
+        let cur_id = state.queue.lock().unwrap().tracks.get(cur).map(|t| t.id.clone());
+        let bpms = state.bpms.lock().unwrap();
+        match cur_id.and_then(|id| bpms.get(&id).copied().map(|b| (id, b))) {
+            Some((_, a)) => match bpms.get(&target.id) {
+                Some(t) if *t > 0.0 => {
+                    let ratio = a / t;
+                    if (0.93..=1.07).contains(&ratio) {
+                        (ratio, true)
+                    } else {
+                        (1.0, false)
+                    }
+                }
+                _ => (1.0, false),
+            },
+            None => (1.0, false),
+        }
+    };
     {
         let mut f = state.fusion.lock().unwrap();
         if !f.enabled {
@@ -567,8 +630,10 @@ fn fusion_lull(app: &AppHandle, position: f64, fade: f64) {
             f.parked.retain(|(i, _)| *i != target.idx);
         }
         f.pending = Some(target);
+        f.mixes = f.mixes.wrapping_add(1);
     }
-    state.player.send(Cmd::Mix(fade));
+    state.player.send(Cmd::MixTempo(ratio));
+    state.player.send(Cmd::Mix(if matched { fade + 1.5 } else { fade }));
 }
 
 fn fusion_mixed(app: &AppHandle) {
@@ -590,6 +655,7 @@ fn fusion_mixed(app: &AppHandle) {
         q.loading = false;
         q.expected_next = None;
     }
+    state.fusion.lock().unwrap().parked.retain(|(i, _)| *i != at);
     emit_queue(app);
     update_now_playing(app, &track);
     state.store.history_push(&track);
@@ -694,6 +760,7 @@ fn reset_fusion(app: &AppHandle) {
     let state = app.state::<AppState>();
     let mut f = state.fusion.lock().unwrap();
     f.parked.clear();
+    f.mixes = 0;
     f.target = None;
 }
 
@@ -1227,6 +1294,17 @@ fn main() {
                     Event::Lull { position, fade } => {
                         fusion_lull(&cb_app, position, fade);
                     }
+                    Event::Bpm(bpm) => {
+                        if let Some(state) = cb_app.try_state::<AppState>() {
+                            let id = {
+                                let q = state.queue.lock().unwrap();
+                                q.tracks.get(q.index.max(0) as usize).map(|t| t.id.clone())
+                            };
+                            if let Some(id) = id {
+                                state.bpms.lock().unwrap().insert(id, bpm);
+                            }
+                        }
+                    }
                     Event::Mixed => {
                         fusion_mixed(&cb_app);
                     }
@@ -1285,6 +1363,8 @@ fn main() {
                     enabled: store.setting("fusion").as_deref() == Some("1"),
                     ..Fusion::default()
                 }),
+                bpms: Mutex::new(HashMap::new()),
+                bpms_pending: Mutex::new(HashSet::new()),
                 quality: Mutex::new(store.setting("quality").unwrap_or_else(|| "max".into())),
                 tags: AtomicU64::new(1),
             });

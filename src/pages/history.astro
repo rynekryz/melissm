@@ -12,8 +12,9 @@ import Layout from '../layouts/Layout.astro';
   import { clearHistory, getHistory, removeHistory } from '../lib/library';
   import { confirmDialog } from '../lib/ui';
   import { renderTracks } from '../lib/ui';
+  import { onPage } from '../lib/page';
 
-  document.addEventListener('astro:page-load', () => {
+  onPage('/history', () => {
     const list = document.getElementById('history-list');
     if (!list) return;
     const draw = () =>

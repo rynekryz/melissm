@@ -217,8 +217,9 @@ import Layout from '../layouts/Layout.astro';
   import { clearLikes, clearHistory } from '../lib/library';
   import { confirmDialog, esc } from '../lib/ui';
   import { mountSnake } from '../lib/games';
+  import { onPage } from '../lib/page';
 
-  document.addEventListener('astro:page-load', () => {
+  onPage('/settings', () => {
     const status = document.getElementById('theme-status')!;
     const modeGroup = document.getElementById('mode-group')!;
     const schemeGroup = document.getElementById('scheme-group')!;

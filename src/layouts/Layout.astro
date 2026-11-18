@@ -17,7 +17,7 @@ const path = Astro.url.pathname;
   <body class="overflow-hidden">
     <div class="flex h-full gap-3 p-3 pb-[108px]">
       <Sidebar path={path} />
-      <main class="min-w-0 flex-1 overflow-y-auto rounded-[28px] bg-surface p-8 transition-colors duration-700">
+      <main data-page={path} class="min-w-0 flex-1 overflow-y-auto rounded-[28px] bg-surface p-8 transition-colors duration-700">
         <slot />
       </main>
     </div>

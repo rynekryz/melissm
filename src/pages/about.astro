@@ -46,8 +46,9 @@ const deps = [
 </Layout>
 <script>
   import { mountShooter } from '../lib/games';
+  import { onPage } from '../lib/page';
 
-  document.addEventListener('astro:page-load', () => {
+  onPage('/about', () => {
     document.querySelectorAll<HTMLDetailsElement>('details[data-file]').forEach((d) => {
       d.addEventListener('toggle', async () => {
         const pre = d.querySelector('pre')!;

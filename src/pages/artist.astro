@@ -14,8 +14,9 @@ import Layout from '../layouts/Layout.astro';
   import { playQueue } from '../lib/player';
   import type { Track } from '../lib/player';
   import { esc, renderCards, renderTracks } from '../lib/ui';
+  import { onPage } from '../lib/page';
 
-  document.addEventListener('astro:page-load', async () => {
+  onPage('/artist', async () => {
     const id = new URLSearchParams(location.search).get('id');
     if (!id) return;
     const head = document.getElementById('head')!;

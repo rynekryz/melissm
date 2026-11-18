@@ -12,8 +12,9 @@ import Layout from '../layouts/Layout.astro';
 <script>
   import { search } from '../lib/api';
   import { renderTracks } from '../lib/ui';
+  import { onPage } from '../lib/page';
 
-  document.addEventListener('astro:page-load', () => {
+  onPage('/search', () => {
     const input = document.getElementById('q') as HTMLInputElement | null;
     if (!input) return;
     const results = document.getElementById('results')!;

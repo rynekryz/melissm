@@ -15,8 +15,9 @@ import Layout from '../layouts/Layout.astro';
   import { createPlaylist, deletePlaylist, getPlaylists, subscribe } from '../lib/library';
   import { confirmDialog, esc } from '../lib/ui';
   import { navigate } from 'astro:transitions/client';
+  import { onPage } from '../lib/page';
 
-  document.addEventListener('astro:page-load', () => {
+  onPage('/playlists', () => {
     const plEl = document.getElementById('playlists')!;
     const draw = () => {
       const lists = getPlaylists();
