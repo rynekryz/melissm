@@ -38,7 +38,7 @@ import Layout from '../layouts/Layout.astro';
         const id = +card.dataset.id!;
         card.onclick = async (e) => {
           if ((e.target as HTMLElement).closest('[data-del]')) {
-            const pl = getPlaylists().find((p) => String(p.id) === id);
+            const pl = getPlaylists().find((p) => p.id === id);
             if (!(await confirmDialog(`Delete playlist "${pl?.name ?? ''}"?`))) return;
             void deletePlaylist(id).then(draw);
             return;

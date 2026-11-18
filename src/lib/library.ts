@@ -8,6 +8,7 @@ import {
   playlistDelete,
   playlistRemove,
   playlistRename,
+  playlistTracks,
   playlistsList,
   storeImport,
 } from './api';

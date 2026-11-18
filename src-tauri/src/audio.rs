@@ -26,13 +26,14 @@ pub enum Cmd {
     Volume(f32),
     Fade(u32),
     Mix(f64),
+    MixClock,
 }
 
 pub enum Event {
     Ended { tag: u64, gapless: bool },
     Failed(String),
     Status { playing: bool, position: f64 },
-    Lull { position: f64 },
+    Lull { position: f64, fade: f64 },
     Mixed,
     MixFailed,
 }
@@ -209,6 +210,10 @@ fn run(
     let mut last_mix = Instant::now() - Duration::from_secs(600);
     let mut pending_seek = [None::<f64>; 2];
     let mut loud = [false; 2];
+    let mut ema = [f64::NEG_INFINITY; 2];
+    let mut dip = [None::<Instant>; 2];
+    let mut mild = [None::<Instant>; 2];
+    let mut tail_sent = [false; 2];
 
     loop {
         match rx.recv_timeout(Duration::from_millis(60)) {
@@ -227,7 +232,11 @@ fn run(
                 quiet = [None, None];
                 pending_seek = [None, None];
                 loud = [false, false];
-                last_mix = Instant::now() - Duration::from_secs(600);
+                ema = [f64::NEG_INFINITY; 2];
+                dip = [None, None];
+                mild = [None, None];
+                tail_sent = [false, false];
+                last_mix = Instant::now();
                 chains[0].gain = 1.0;
                 let _ = app.emit("player-state", Status { playing: true, position: 0.0, duration });
             }
@@ -320,6 +329,13 @@ fn run(
             Ok(Cmd::Fade(s)) => {
                 fade_secs = f64::from(s);
             }
+            Ok(Cmd::MixClock) => {
+                last_mix = Instant::now();
+                quiet = [None, None];
+                dip = [None, None];
+                mild = [None, None];
+                tail_sent = [false, false];
+            }
             Ok(Cmd::Mix(s)) => {
                 let other = 1 - active;
                 if !mixing && chains[other].prepared && chains[active].playbin.current_state() == State::Playing {
@@ -397,6 +413,10 @@ fn run(
                 mix_pos = 0.0;
                 last_mix = Instant::now();
                 quiet = [None, None];
+                ema = [f64::NEG_INFINITY; 2];
+                dip = [None, None];
+                mild = [None, None];
+                tail_sent = [false, false];
                 if let Some(f) = cb.lock().unwrap().as_ref() {
                     f(Event::Mixed);
                 }
@@ -421,28 +441,77 @@ fn run(
                                         .fold(f64::NEG_INFINITY, f64::max)
                                 })
                                 .unwrap_or(f64::NEG_INFINITY);
+                            if rms.is_finite() {
+                                ema[ci] = if ema[ci].is_finite() {
+                                    ema[ci] * 0.92 + rms * 0.08
+                                } else {
+                                    rms
+                                };
+                            }
                             if rms > -18.0 {
                                 quiet[ci] = None;
                                 loud[ci] = true;
-                            } else if rms < -28.0 && loud[ci] {
-                                let now = Instant::now();
-                                let since = *quiet[ci].get_or_insert(now);
-                                if now.duration_since(since) >= Duration::from_millis(1000)
-                                    && last_mix.elapsed() >= Duration::from_secs(20)
+                            }
+                            let now = Instant::now();
+                            let avg = ema[ci];
+                            if let Some(pos) = chains[ci].playbin.query_position::<ClockTime>() {
+                                let p = pos.seconds() as f64;
+                                let remain = duration - p;
+                                let can = p >= 20.0 && remain >= 6.0 && loud[ci];
+                                let mut fire: Option<f64> = None;
+                                if can && rms < -28.0 {
+                                    let since = *quiet[ci].get_or_insert(now);
+                                    if now.duration_since(since) >= Duration::from_millis(900) {
+                                        fire = Some(3.2);
+                                    }
+                                } else {
+                                    quiet[ci] = None;
+                                }
+                                if can && avg > -24.0 && rms < avg - 7.0 {
+                                    let since = *dip[ci].get_or_insert(now);
+                                    if now.duration_since(since) >= Duration::from_millis(700) {
+                                        fire = Some(3.2);
+                                    }
+                                } else {
+                                    dip[ci] = None;
+                                }
+                                if fire.is_none()
+                                    && loud[ci]
+                                    && duration > 0.0
+                                    && p >= 15.0
+                                    && remain <= 5.0
+                                    && remain >= 0.8
+                                    && !tail_sent[ci]
                                 {
-                                    if let Some(pos) = chains[ci].playbin.query_position::<ClockTime>() {
-                                        let p = pos.seconds() as f64;
-                                        if p >= 20.0 && duration - p >= 10.0 {
-                                            quiet[ci] = None;
-                                            last_mix = now;
-                                            if let Some(f) = cb.lock().unwrap().as_ref() {
-                                                f(Event::Lull { position: p });
+                                    tail_sent[ci] = true;
+                                    fire = Some(3.2);
+                                }
+                                if fire.is_none() {
+                                    let gap = last_mix.elapsed();
+                                    if gap >= Duration::from_secs(75) && p >= 35.0 && remain >= 10.0 {
+                                        if gap >= Duration::from_secs(95) {
+                                            fire = Some(5.0);
+                                        } else if avg.is_finite() && rms < avg - 1.5 {
+                                            let since = *mild[ci].get_or_insert(now);
+                                            if now.duration_since(since) >= Duration::from_millis(400) {
+                                                fire = Some(4.5);
                                             }
+                                        } else {
+                                            mild[ci] = None;
                                         }
+                                    } else {
+                                        mild[ci] = None;
                                     }
                                 }
-                            } else {
-                                quiet[ci] = None;
+                                if let Some(fade) = fire {
+                                    quiet[ci] = None;
+                                    dip[ci] = None;
+                                    mild[ci] = None;
+                                    last_mix = now;
+                                    if let Some(f) = cb.lock().unwrap().as_ref() {
+                                        f(Event::Lull { position: p, fade });
+                                    }
+                                }
                             }
                         }
                     }

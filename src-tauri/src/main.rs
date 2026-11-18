@@ -527,7 +527,7 @@ async fn fusion_preload(app: &AppHandle) {
     state.player.send(Cmd::PreloadAt { url, ua, tag, position: pos });
 }
 
-fn fusion_lull(app: &AppHandle, position: f64) {
+fn fusion_lull(app: &AppHandle, position: f64, fade: f64) {
     let state = app.state::<AppState>();
     let target = {
         let f = state.fusion.lock().unwrap();
@@ -568,7 +568,7 @@ fn fusion_lull(app: &AppHandle, position: f64) {
         }
         f.pending = Some(target);
     }
-    state.player.send(Cmd::Mix(3.2));
+    state.player.send(Cmd::Mix(fade));
 }
 
 fn fusion_mixed(app: &AppHandle) {
@@ -607,6 +607,9 @@ async fn set_fusion(app: AppHandle, enabled: bool) -> Result<(), String> {
         f.enabled = enabled;
         f.parked.clear();
         f.target = None;
+    }
+    if enabled {
+        state.player.send(Cmd::MixClock);
     }
     state.player.send(Cmd::CancelPreload);
     preload_next(app.clone()).await;
@@ -1221,8 +1224,8 @@ fn main() {
                     Event::Failed(msg) => {
                         let _ = cb_app.emit("playback-failed", msg);
                     }
-                    Event::Lull { position } => {
-                        fusion_lull(&cb_app, position);
+                    Event::Lull { position, fade } => {
+                        fusion_lull(&cb_app, position, fade);
                     }
                     Event::Mixed => {
                         fusion_mixed(&cb_app);
