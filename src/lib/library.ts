@@ -56,7 +56,10 @@ export function initLibrary(): Promise<void> {
       }
     }
     emit();
-  })();
+  })().catch((e) => {
+    initPromise = null;
+    throw e;
+  });
   return initPromise;
 }
 

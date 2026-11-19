@@ -23,15 +23,23 @@ import Layout from '../layouts/Layout.astro';
     let seq = 0;
     const run = async () => {
       const q = input.value.trim();
-      if (!q) return;
+      if (!q) {
+        seq++;
+        clearTimeout(timer);
+        results.innerHTML = '';
+        status.textContent = '';
+        return;
+      }
       const id = ++seq;
+      if (!results.isConnected) return;
       status.textContent = 'Searching…';
       try {
         const tracks = await search(q);
-        if (id !== seq) return;
+        if (id !== seq || !results.isConnected) return;
         status.textContent = tracks.length ? '' : 'No songs found. Try a different search.';
         renderTracks(results, tracks, { radio: true });
       } catch (e) {
+        if (id !== seq) return;
         status.textContent = `Search failed: ${e}`;
       }
     };
@@ -39,7 +47,11 @@ import Layout from '../layouts/Layout.astro';
       clearTimeout(timer);
       timer = window.setTimeout(run, 350);
     });
-    input.addEventListener('keydown', (e) => e.key === 'Enter' && run());
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      clearTimeout(timer);
+      void run();
+    });
     if (document.hasFocus()) input.focus();
   });
 </script>

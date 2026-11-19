@@ -1,4 +1,4 @@
-<div id="queue-panel" class="lyrics-glass fixed left-3 top-3 bottom-[108px] z-50 flex w-[380px] -translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
+<div id="queue-panel" inert aria-hidden="true" class="lyrics-glass fixed left-3 top-3 bottom-[108px] z-50 flex w-[380px] -translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
   <div class="mb-2 flex shrink-0 items-center justify-between px-2">
     <h2 class="text-lg font-medium">Queue</h2>
     <button id="q-clear" class="press grid size-9 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Clear upcoming"><span class="ms text-on-surface-variant">clear_all</span></button>
@@ -6,7 +6,7 @@
   <div id="queue-list" class="flex-1 overflow-y-auto pr-2"></div>
 </div>
 
-<div id="lyrics-panel" class="lyrics-glass fixed right-3 top-3 bottom-[108px] z-50 flex w-[380px] translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
+<div id="lyrics-panel" inert aria-hidden="true" class="lyrics-glass fixed right-3 top-3 bottom-[108px] z-50 flex w-[380px] translate-x-[115%] flex-col rounded-[28px] p-4 shadow-2xl shadow-black/40 transition-transform duration-500 [transition-timing-function:var(--spring)]">
   <div class="mb-2 flex shrink-0 items-center justify-between px-2">
     <h2 class="text-lg font-medium">Lyrics</h2>
     <div class="flex gap-1">
@@ -44,15 +44,15 @@
       <div id="p-title" class="truncate font-medium">Nothing playing</div>
       <div id="p-artist" class="cursor-pointer truncate text-sm text-on-surface-variant hover:font-semibold">Pick a song you like</div>
     </div>
-    <button id="p-like" class="press grid size-10 shrink-0 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Like"><span id="p-like-icon" class="ms">favorite</span></button>
+    <button id="p-like" class="press grid size-12 shrink-0 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Like"><span id="p-like-icon" class="ms">favorite</span></button>
   </div>
 
   <div class="flex flex-1 items-center gap-4">
-    <button id="p-shuffle" class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Shuffle"><span class="ms">shuffle</span></button>
-    <button id="p-prev" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Previous"><span class="ms fill">skip_previous</span></button>
-    <button id="p-play" data-playing="false" class="press play-btn grid size-14 place-items-center bg-primary text-on-primary" aria-label="Play or pause"><span id="p-icon" class="ms fill text-[32px]">play_arrow</span></button>
-    <button id="p-next" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Next"><span class="ms fill">skip_next</span></button>
-    <button id="p-repeat" class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span class="ms">repeat</span></button>
+    <button id="p-shuffle" class="press grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Shuffle"><span class="ms">shuffle</span></button>
+    <button id="p-prev" class="press grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Previous"><span class="ms fill">skip_previous</span></button>
+    <button id="p-play" data-playing="false" class="press play-btn grid size-16 place-items-center bg-primary text-on-primary" aria-label="Play or pause"><span id="p-icon" class="ms fill text-[32px]">play_arrow</span></button>
+    <button id="p-next" class="press grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Next"><span class="ms fill">skip_next</span></button>
+    <button id="p-repeat" class="press grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span class="ms">repeat</span></button>
     <span id="p-pos" class="w-10 text-right text-xs tabular-nums text-on-surface-variant">0:00</span>
     <div id="p-seek" class="relative h-4 flex-1 cursor-pointer">
       <div id="p-seek-track" class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full"></div>
@@ -62,10 +62,10 @@
   </div>
 
   <div class="flex w-[20%] items-center justify-end gap-2">
-    <button id="p-queue" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue"><span class="ms">queue_music</span></button>
-    <button id="p-lyrics" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics"><span class="ms">lyrics</span></button>
-    <button id="p-fusion" class="press grid size-11 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion"><span class="ms">transition_fade</span></button>
-    <span class="ms text-on-surface-variant">volume_up</span>
+    <button id="p-queue" class="press icon-toggle grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue" aria-expanded="false"><span class="ms">queue_music</span></button>
+    <button id="p-lyrics" class="press icon-toggle grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics" aria-expanded="false"><span class="ms">lyrics</span></button>
+    <button id="p-fusion" class="press icon-toggle grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion" aria-pressed="false"><span class="ms">transition_fade</span></button>
+    <span id="p-vol-icon" class="ms text-on-surface-variant">volume_up</span>
     <div class="xslider w-28 shrink-0">
       <input id="p-vol" type="range" min="0" max="100" aria-label="Volume" />
       <div class="xtrack"></div>
@@ -100,19 +100,19 @@
         </div>
         <span id="fp-dur" class="w-12 text-sm tabular-nums text-on-surface-variant">0:00</span>
       </div>
-      <div class="mt-6 flex items-center gap-3">
+      <div class="mt-6 flex flex-wrap items-center gap-3">
         <button id="fp-like" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Like"><span id="fp-like-icon" class="ms text-[26px]">favorite</span></button>
         <button id="fp-shuffle" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Shuffle"><span class="ms text-[26px]">shuffle</span></button>
         <button id="fp-prev" class="press grid size-16 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Previous"><span class="ms fill text-[30px]">skip_previous</span></button>
         <button id="fp-play" data-playing="false" class="press play-btn grid size-20 place-items-center bg-primary text-on-primary shadow-xl shadow-black/30" aria-label="Play or pause"><span id="fp-icon" class="ms fill text-[40px]">play_arrow</span></button>
         <button id="fp-next" class="press grid size-16 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Next"><span class="ms fill text-[30px]">skip_next</span></button>
         <button id="fp-repeat" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span id="fp-repeat-icon" class="ms text-[26px]">repeat</span></button>
-        <button id="fp-queue" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue"><span class="ms text-[26px]">queue_music</span></button>
-        <button id="fp-lyrics" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics"><span class="ms text-[26px]">lyrics</span></button>
-        <button id="fp-fusion" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion"><span class="ms text-[26px]">transition_fade</span></button>
+        <button id="fp-queue" class="press icon-toggle grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue" aria-expanded="false"><span class="ms text-[26px]">queue_music</span></button>
+        <button id="fp-lyrics" class="press icon-toggle grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics" aria-expanded="false"><span class="ms text-[26px]">lyrics</span></button>
+        <button id="fp-fusion" class="press icon-toggle grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion" aria-pressed="false"><span class="ms text-[26px]">transition_fade</span></button>
       </div>
       <div class="mt-8 flex w-72 items-center gap-3">
-        <span class="ms text-on-surface-variant">volume_up</span>
+        <span id="fp-vol-icon" class="ms text-on-surface-variant">volume_up</span>
         <div id="fp-vol" class="xslider min-w-0 flex-1">
           <input id="fp-vol-input" type="range" min="0" max="100" aria-label="Volume" />
           <div class="xtrack"></div>
@@ -159,6 +159,8 @@
   let lines: { t: number; text: string; words?: { w: string; s: number }[] }[] = [];
   let lyricsFor = '';
   let lyricsGen = 0;
+  let lyricsFailId = '';
+  let lyricsFailAt = 0;
   let activeLine = -1;
   let isCustom = false;
   let fsOpen = false;
@@ -167,11 +169,13 @@
   let fusionUi = true;
   let lastSynced = '';
   const lycOffset = () => parseFloat(localStorage.getItem('melissm.lyrics_offset') ?? '0') || 0;
+  const failedLyricsForCurrent = () => !!current() && current()!.id === lyricsFailId;
   const paintFusion = () => {
     for (const id of ['p-fusion', 'fp-fusion']) {
       const el = $(id);
       el.classList.toggle('hidden', !fusionUi);
-      el.querySelector('.ms')!.classList.toggle('text-primary', fusionOn && fusionUi);
+      el.classList.toggle('is-on', fusionOn && fusionUi);
+      el.setAttribute('aria-pressed', String(fusionOn && fusionUi));
     }
   };
   const toggleFusion = () => {
@@ -251,19 +255,24 @@
   fpVolInput.value = vol.value;
 
   let qSig = '';
+  let prevQueueIds = new Set<string>();
   const renderQueue = (s: PlayerState) => {
     const sig = s.tracks.map((t) => t.id).join('|');
     if (sig !== qSig) {
       qSig = sig;
+      let born = 0;
       qList.innerHTML = s.tracks
-        .map(
-          (t, i) => `<div class="qrow" draggable="true" data-i="${i}" data-id="${t.id}">
+        .map((t, i) => {
+          const fresh = prevQueueIds.size > 0 && !prevQueueIds.has(t.id);
+          const delay = fresh ? ` style="animation-delay:${born++ * 35}ms"` : '';
+          return `<div class="qrow${fresh ? ' qrow-in' : ''}" draggable="true" data-i="${i}" data-id="${t.id}"${delay}>
             ${t.thumbnail ? `<img src="${esc(t.thumbnail)}" alt="" loading="lazy" class="size-10 shrink-0 rounded-xl object-cover" />` : '<div class="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60">music_note</span></div>'}
             <div class="min-w-0 flex-1"><div class="truncate text-sm font-medium">${esc(t.title)}</div><div class="truncate text-xs opacity-70">${esc(t.artist)}</div></div>
             <button data-qrm class="press grid size-8 shrink-0 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Remove"><span class="ms text-on-surface-variant">close</span></button>
-          </div>`,
-        )
+          </div>`;
+        })
         .join('');
+      prevQueueIds = new Set(s.tracks.map((t) => t.id));
     }
     qList.querySelectorAll<HTMLElement>('.qrow').forEach((row) => {
       row.classList.toggle('on', +row.dataset.i! === s.index);
@@ -297,7 +306,15 @@
   const setQueue = (open: boolean) => {
     qPanel.classList.toggle('-translate-x-[115%]', !open);
     qPanel.classList.toggle('open', open);
+    qPanel.inert = !open;
+    qPanel.setAttribute('aria-hidden', String(!open));
+    for (const id of ['p-queue', 'fp-queue']) {
+      const b = $(id);
+      b.classList.toggle('is-on', open);
+      b.setAttribute('aria-expanded', String(open));
+    }
   };
+  setQueue(false);
   const toggleQueue = () => setQueue(qPanel.classList.contains('-translate-x-[115%]'));
   $('p-queue').onclick = toggleQueue;
   $('fp-queue').onclick = toggleQueue;
@@ -309,20 +326,22 @@
   async function loadLyrics() {
     const track = current();
     if (!track || lyricsFor === track.id) return;
+    if (track.id === lyricsFailId && Date.now() - lyricsFailAt < 15000) return;
     const gen = ++lyricsGen;
     lyricsFor = track.id;
     lines = [];
     activeLine = -1;
     isCustom = false;
+    lastSynced = '';
     body.innerHTML = '<p class="text-on-surface-variant">Looking for lyrics…</p>';
     lfBody.innerHTML = '';
+    fplBody.innerHTML = '';
     try {
       const l = await lyrics(track);
       if (gen !== lyricsGen || lyricsFor !== track.id) return;
       isCustom = l.custom;
       lastSynced = l.synced ?? '';
       const off = lycOffset();
-      $('ly-provider').textContent = l.custom ? 'Your lyrics' : `Lyrics from ${l.provider || 'LrcLib'}`;
       if (l.karaoke) {
         lines = l.karaoke.map((k) => ({
           t: k.start + off,
@@ -332,14 +351,30 @@
       } else if (l.synced) {
         lines = parseLrc(l.synced).map((x) => ({ ...x, t: x.t + off }));
       } else if (l.plain) {
+        $('ly-provider').textContent = l.custom ? 'Your lyrics' : `Lyrics from ${l.provider || 'LrcLib'}`;
         body.innerHTML = l.plain.split('\n').map((x) => `<p>${esc(x)}</p>`).join('');
         lfBody.innerHTML = l.plain.split('\n').map((x) => `<p class="lyric">${esc(x)}</p>`).join('');
+        fplBody.innerHTML = l.plain.split('\n').map((x) => `<p>${esc(x)}</p>`).join('');
+        return;
       } else {
+        $('ly-provider').textContent = l.custom ? 'Your lyrics' : `Lyrics from ${l.provider || 'LrcLib'}`;
         body.innerHTML = '<p class="text-on-surface-variant">No lyrics for this one. Hit the pencil to write your own.</p>';
+        lfBody.innerHTML = '';
+        fplBody.innerHTML = '';
+        return;
       }
+      $('ly-provider').textContent = l.custom ? 'Your lyrics' : `Lyrics from ${l.provider || 'LrcLib'}`;
       paintLines();
     } catch {
+      if (gen !== lyricsGen) return;
+      lyricsFor = '';
+      lyricsFailId = track.id;
+      lyricsFailAt = Date.now();
+      lines = [];
+      activeLine = -1;
       body.innerHTML = '<p class="text-on-surface-variant">Could not load lyrics. Check your connection.</p>';
+      lfBody.innerHTML = '';
+      fplBody.innerHTML = '';
     }
   }
 
@@ -363,43 +398,61 @@
     activeLine = -1;
   };
 
+  const setFpLyr = (on: boolean) => {
+    full.classList.toggle('fp-lyr', on);
+    $('fp-lyr-wrap').setAttribute('aria-hidden', String(!on));
+    const b = $('fp-lyrics');
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-expanded', String(on));
+    if (on) {
+      setPanel(false);
+      setQueue(false);
+      loadLyrics();
+    }
+  };
   const openFull = () => {
     full.classList.add('open');
     full.setAttribute('aria-hidden', 'false');
     if (panelClose) {
-      panel.classList.add('translate-x-[115%]');
-      panel.classList.remove('open');
-      qPanel.classList.add('-translate-x-[115%]');
-      qPanel.classList.remove('open');
+      setPanel(false);
+      setQueue(false);
     }
     loadLyrics();
   };
   const closeFull = () => {
+    setFpLyr(false);
     full.classList.remove('open');
-    full.classList.remove('fp-lyr');
-    $('fp-lyr-wrap').setAttribute('aria-hidden', 'true');
-    $('fp-lyrics').querySelector('.ms')!.classList.remove('text-primary');
     full.setAttribute('aria-hidden', 'true');
   };
   bar.addEventListener('click', (e) => {
-    if ((e.target as HTMLElement).closest('button, .xslider, #p-seek')) return;
+    if ((e.target as HTMLElement).closest('button, .xslider, #p-seek, #p-artist')) return;
     openFull();
   });
   $('fp-close').onclick = closeFull;
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      if (editorOpen) {
-        editBack()?.remove();
-        editorOpen = false;
-        return;
-      }
-      if (fsOpen) closeFsLyrics();
-      else if (full.classList.contains('fp-lyr')) {
-        full.classList.remove('fp-lyr');
-        $('fp-lyr-wrap').setAttribute('aria-hidden', 'true');
-        $('fp-lyrics').querySelector('.ms')!.classList.remove('text-primary');
-      } else if (full.classList.contains('open')) closeFull();
+    if (e.key !== 'Escape') return;
+    if (editorOpen) {
+      editBack()?.remove();
+      editorOpen = false;
+      return;
     }
+    if (fsOpen) {
+      closeFsLyrics();
+      return;
+    }
+    if (full.classList.contains('fp-lyr')) {
+      setFpLyr(false);
+      return;
+    }
+    if (full.classList.contains('open')) {
+      closeFull();
+      return;
+    }
+    if (qPanel.classList.contains('open')) {
+      setQueue(false);
+      return;
+    }
+    if (panel.classList.contains('open')) setPanel(false);
   });
 
   const syncFpControls = (playing: boolean, shuffle: boolean, repeat: string) => {
@@ -439,23 +492,26 @@
   const setPanel = (open: boolean) => {
     panel.classList.toggle('translate-x-[115%]', !open);
     panel.classList.toggle('open', open);
+    panel.inert = !open;
+    panel.setAttribute('aria-hidden', String(!open));
+    for (const id of ['p-lyrics', 'fp-lyrics']) {
+      const b = $(id);
+      b.classList.toggle('is-on', open);
+      b.setAttribute('aria-expanded', String(open));
+    }
   };
+  setPanel(false);
   const togglePanel = () => {
     const open = panel.classList.contains('translate-x-[115%]');
+    if (open && failedLyricsForCurrent()) {
+      lyricsFor = '';
+      lyricsFailId = '';
+    }
     setPanel(open);
     if (open) loadLyrics();
   };
   $('p-lyrics').onclick = togglePanel;
-  const toggleFpLyr = () => {
-    const on = full.classList.toggle('fp-lyr');
-    $('fp-lyr-wrap').setAttribute('aria-hidden', String(!on));
-    $('fp-lyrics').querySelector('.ms')!.classList.toggle('text-primary', on);
-    if (on) {
-      setPanel(false);
-      setQueue(false);
-      loadLyrics();
-    }
-  };
+  const toggleFpLyr = () => setFpLyr(!full.classList.contains('fp-lyr'));
   $('fp-lyrics').onclick = toggleFpLyr;
   const openFsLyrics = () => {
     fsOpen = true;
@@ -640,6 +696,9 @@
       paintSlider(vol, 100, s.volume * 100);
       paintSlider(fpVol, 100, +vol.value);
     }
+    const volIcon = s.volume <= 0.001 ? 'volume_off' : s.volume < 0.5 ? 'volume_down' : 'volume_up';
+    $('p-vol-icon').textContent = volIcon;
+    $('fp-vol-icon').textContent = volIcon;
     renderQueue(s);
     syncFpControls(s.playing, s.shuffle, s.repeat);
     if (has && (fsOpen || full.classList.contains('fp-lyr') || !panel.classList.contains('translate-x-[115%]'))) loadLyrics();

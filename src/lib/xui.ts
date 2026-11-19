@@ -14,10 +14,17 @@ export const initSliders = () => {
     };
     input.addEventListener('input', paint);
     el.addEventListener('pointerdown', () => el.classList.add('dragging'));
-    window.addEventListener('pointerup', () => el.classList.remove('dragging'), { passive: true });
     paint();
   });
 };
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(
+    'pointerup',
+    () => document.querySelectorAll('.xslider.dragging').forEach((el) => el.classList.remove('dragging')),
+    { passive: true },
+  );
+}
 
 export const initSwipe = () => {
   let row: HTMLElement | null = null;

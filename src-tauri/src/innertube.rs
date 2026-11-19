@@ -296,7 +296,14 @@ fn extract_visitor(page: &str) -> String {
 
 impl Yt {
     pub fn new() -> Self {
-        Self { http: Client::builder().cookie_store(true).build().expect("http client") }
+        Self {
+            http: Client::builder()
+                .cookie_store(true)
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(20))
+                .build()
+                .expect("http client"),
+        }
     }
 
     pub async fn post(&self, endpoint: &str, body: Value, ua: &str, web: bool) -> Result<Value, String> {

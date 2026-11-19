@@ -24,6 +24,7 @@ import Layout from '../layouts/Layout.astro';
     const status = document.getElementById('status')!;
     try {
       const page = await artist(id);
+      if (!head.isConnected) return;
       document.title = `${page.name} · Melissm`;
       head.innerHTML = `
         ${page.thumbnail ? `<img src="${esc(page.thumbnail)}" alt="" class="size-44 shrink-0 rounded-full object-cover shadow-lg shadow-black/30" />` : '<div class="size-44 shrink-0 rounded-full bg-surface-container-highest grid place-items-center"><span class="ms text-on-surface-variant opacity-60" style="font-size:64px">person</span></div>'}
@@ -50,7 +51,7 @@ import Layout from '../layouts/Layout.astro';
         content.appendChild(sec);
       }
     } catch (e) {
-      status.textContent = `Could not load this artist: ${e}`;
+      if (status.isConnected) status.textContent = `Could not load this artist: ${e}`;
     }
   });
 </script>

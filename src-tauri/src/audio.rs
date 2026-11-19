@@ -27,6 +27,7 @@ pub enum Cmd {
     Volume(f32),
     Fade(u32),
     Mix { fade: f64, urgent: bool },
+    CancelMix,
     MixTempo(f64),
     TempoReset,
     MixClock,
@@ -176,6 +177,9 @@ impl Player {
     }
 
     pub fn set_eq(&self, band: u32, gain: f64) {
+        if band >= 10 {
+            return;
+        }
         for f in self.filters.lock().unwrap().iter() {
             f.eq.set_property(format!("band{band}").as_str(), gain.clamp(-24.0, 12.0));
         }
@@ -474,6 +478,7 @@ fn run(
                 chains[1].stop();
                 active = 0;
                 chains[0].set_uri(&url, &ua, 0);
+                chains[0].gain = 1.0;
                 chains[0].apply_volume(volume);
                 let _ = chains[0].playbin.set_state(State::Playing);
                 duration = dur.max(0.0);
@@ -511,6 +516,7 @@ fn run(
                     chains[other].filter.pitch.set_property("tempo", speed.lock().unwrap().clamp(0.5, 2.0) as f32);
                     tempo_ratio[other] = 1.0;
                     loud[other] = false;
+                    pending_seek[other] = None;
                     let _ = chains[other].playbin.set_state(State::Paused);
                 }
             }
@@ -529,6 +535,13 @@ fn run(
                 }
             }
             Ok(Cmd::CancelPreload) => {
+                if !fading && !mixing {
+                    chains[1 - active].stop();
+                    pending_seek[1 - active] = None;
+                }
+            }
+            Ok(Cmd::CancelMix) => {
+                queued = None;
                 if !fading && !mixing {
                     chains[1 - active].stop();
                     pending_seek[1 - active] = None;
@@ -913,7 +926,25 @@ fn run(
                         if let Some(f) = cb.lock().unwrap().as_ref() {
                             f(Event::Failed(err.error().to_string()));
                         }
-                        return;
+                        active = 0;
+                        fading = false;
+                        fade_pos = 0.0;
+                        mixing = false;
+                        queued = None;
+                        duration = 0.0;
+                        quiet = [None, None];
+                        pending_seek = [None, None];
+                        loud = [false, false];
+                        ema = [f64::NEG_INFINITY; 2];
+                        dip = [None, None];
+                        mild = [None, None];
+                        tail_sent = [false, false];
+                        tempo.reset();
+                        tempo_ratio = [1.0, 1.0];
+                        bpm_last = 0.0;
+                        beat_period = 0.0;
+                        beat_ref = -1.0;
+                        prev_rms = f64::NEG_INFINITY;
                     }
                     MessageView::Error(..) => {
                         chains[ci].stop();
@@ -932,6 +963,20 @@ fn run(
                             fading = false;
                             fade_pos = 0.0;
                             chains[active].gain = 1.0;
+                            quiet = [None, None];
+                            pending_seek = [None, None];
+                            loud = [false, false];
+                            ema = [f64::NEG_INFINITY; 2];
+                            dip = [None, None];
+                            mild = [None, None];
+                            tail_sent = [false, false];
+                            tempo.reset();
+                            tempo_ratio = [1.0, 1.0];
+                            bpm_last = 0.0;
+                            beat_period = 0.0;
+                            beat_ref = -1.0;
+                            prev_rms = f64::NEG_INFINITY;
+                            last_mix = Instant::now();
                             if let Some(f) = cb.lock().unwrap().as_ref() {
                                 f(Event::Ended { tag, gapless: true });
                             }

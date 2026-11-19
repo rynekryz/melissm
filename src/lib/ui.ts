@@ -20,14 +20,24 @@ if (typeof document !== 'undefined') subscribe(markActive);
 
 export type TrackOpts = { onUnlike?: () => void; onRemove?: (t: Track) => void; radio?: boolean };
 
+const prevTrackIds = new WeakMap<HTMLElement, Set<string>>();
+const prevCardIds = new WeakMap<HTMLElement, Set<string>>();
+
 export function renderTracks(el: HTMLElement, tracks: Track[], opts: TrackOpts = {}) {
   if (!tracks.length) {
+    prevTrackIds.set(el, new Set());
     el.innerHTML = '<p class="px-2 py-6 text-on-surface-variant">Nothing here yet.</p>';
     return;
   }
+  const prev = prevTrackIds.get(el);
+  prevTrackIds.set(el, new Set(tracks.map((t) => t.id)));
+  let born = 0;
   el.innerHTML = tracks
     .map(
-      (t, i) => `<div class="track" data-i="${i}" data-id="${t.id}">
+      (t, i) => {
+        const fresh = !!prev?.size && !prev.has(t.id);
+        const delay = fresh ? ` style="animation-delay:${born++ * 40}ms"` : '';
+        return `<div class="track${fresh ? ' track-in' : ''}" data-i="${i}" data-id="${t.id}"${delay}>
         ${art(t, 'size-14 rounded-2xl shrink-0')}
         <div class="min-w-0 flex-1"><div class="truncate font-medium">${esc(t.title)}</div><div class="truncate text-sm opacity-70">${t.artist_id && !t.is_album ? `<span data-artist class="cursor-pointer py-2 hover:font-semibold">${esc(t.artist)}</span>` : esc(t.artist)}${t.album && !t.is_album ? ' • ' + esc(t.album) : ''}</div></div>
         <button data-next class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Play next"><span class="ms text-on-surface-variant">playlist_play</span></button>
@@ -36,7 +46,8 @@ export function renderTracks(el: HTMLElement, tracks: Track[], opts: TrackOpts =
         <button data-like class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Like"><span class="ms ${isLiked(t.id) ? 'fill text-primary' : ''}">favorite</span></button>
         <span class="w-12 text-right text-sm opacity-70">${t.duration ? fmt(t.duration) : ''}</span>
         ${opts.onRemove ? '<button data-remove class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Remove"><span class="ms text-on-surface-variant">delete</span></button>' : ''}
-      </div>`,
+      </div>`;
+      },
     )
     .join('');
   el.onclick = (e) => {
@@ -85,9 +96,14 @@ export function renderTracks(el: HTMLElement, tracks: Track[], opts: TrackOpts =
 }
 
 let plMenu: HTMLElement | null = null;
+let plKey: ((e: KeyboardEvent) => void) | null = null;
 const closeMenu = () => {
   plMenu?.remove();
   plMenu = null;
+  if (plKey) {
+    document.removeEventListener('keydown', plKey, true);
+    plKey = null;
+  }
 };
 
 export function confirmDialog(message: string): Promise<boolean> {
@@ -102,10 +118,18 @@ export function confirmDialog(message: string): Promise<boolean> {
       </div>
     </div>`;
     document.body.appendChild(back);
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      done(false);
+    };
     const done = (v: boolean) => {
+      document.removeEventListener('keydown', key, true);
       back.remove();
       resolve(v);
     };
+    document.addEventListener('keydown', key, true);
+    back.querySelector<HTMLElement>('[data-no]')!.focus();
     back.querySelector('[data-no]')!.addEventListener('click', () => done(false));
     back.querySelector('[data-yes]')!.addEventListener('click', () => done(true));
     back.addEventListener('click', (e) => {
@@ -127,6 +151,14 @@ function openPlaylistMenu(anchor: HTMLElement, track: Track) {
   const m = plMenu;
   m.style.top = `${Math.min(window.innerHeight - m.offsetHeight - 8, r.bottom + 6)}px`;
   m.style.left = `${Math.max(8, r.right - m.offsetWidth)}px`;
+  plKey = (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeMenu();
+    }
+  };
+  document.addEventListener('keydown', plKey, true);
+  m.querySelector<HTMLElement>('button')?.focus();
   m.addEventListener('click', async (e) => {
     e.stopPropagation();
     const b = (e.target as HTMLElement).closest<HTMLElement>('button');
@@ -147,20 +179,28 @@ function openPlaylistMenu(anchor: HTMLElement, track: Track) {
 
 export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: boolean } = {}) {
   if (!tracks.length) {
+    prevCardIds.set(el, new Set());
     el.innerHTML = '';
     return;
   }
+  const prev = prevCardIds.get(el);
+  prevCardIds.set(el, new Set(tracks.map((t) => t.id)));
+  let born = 0;
   const size = opts.row ? 'w-[168px]' : '';
   el.innerHTML = tracks
     .map(
-      (t, i) => `<div class="card group ${size}" data-i="${i}" data-id="${t.id}">
+      (t, i) => {
+        const fresh = !!prev?.size && !prev.has(t.id);
+        const delay = fresh ? ` style="animation-delay:${born++ * 50}ms"` : '';
+        return `<div class="card group${fresh ? ' card-in' : ''} ${size}" data-i="${i}" data-id="${t.id}"${delay}>
         <div class="relative">
           ${art(t, `card-art aspect-square w-full rounded-[32px] shadow-lg shadow-black/30`)}
           <span class="absolute bottom-2 right-2 grid size-10 place-items-center rounded-full bg-primary/90 text-on-primary opacity-0 transition-opacity duration-300 group-hover:opacity-100"><span class="ms fill">${t.is_album || t.is_playlist || t.is_artist ? 'arrow_forward' : 'play_arrow'}</span></span>
         </div>
         <div class="mt-3 truncate px-2 font-medium">${esc(t.title)}</div>
         <div class="truncate px-2 text-sm text-on-surface-variant">${t.artist_id && t.artist ? `<span data-artist class="cursor-pointer py-2 hover:font-semibold">${esc(t.artist)}</span>` : esc(t.artist || (t.is_album ? 'Album' : t.is_playlist ? 'Playlist' : t.is_artist ? 'Artist' : ''))}</div>
-      </div>`,
+      </div>`;
+      },
     )
     .join('');
   el.onclick = (e) => {

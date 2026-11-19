@@ -29,11 +29,17 @@ const path = Astro.url.pathname;
       import { initLibrary } from '../lib/library';
       import { initSliders, initSwipe } from '../lib/xui';
       initTheme();
-      void initLibrary();
+      void initLibrary().catch(() => {});
       initSliders();
       initSwipe();
       document.addEventListener('astro:page-load', () => initSliders());
-      window.addEventListener('contextmenu', (e) => e.preventDefault());
+      const root = document.documentElement;
+      root.dataset.input = 'mouse';
+      window.addEventListener('pointerdown', () => (root.dataset.input = 'mouse'), true);
+      window.addEventListener('keydown', () => (root.dataset.input = 'key'), true);
+      window.addEventListener('contextmenu', (e) => {
+        if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable]')) e.preventDefault();
+      });
       document.addEventListener('gesturestart', (e) => e.preventDefault());
       window.addEventListener('wheel', (e) => {
         if (e.ctrlKey) e.preventDefault();

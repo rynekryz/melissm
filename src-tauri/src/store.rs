@@ -89,14 +89,20 @@ impl Store {
         let conn = self.conn.lock().unwrap();
         let snap = self.work.join("snap.db");
         let _ = fs::remove_file(&snap);
+        let mut ok = false;
         if conn.execute("VACUUM INTO ?", params![snap.to_string_lossy()]).is_ok() {
             if let Ok(bytes) = fs::read(&snap) {
-                let _ = fs::create_dir_all(state_dir());
-                let _ = crypto::seal_file(&state_dir().join("vault.bin"), &bytes);
+                if fs::create_dir_all(state_dir()).is_ok()
+                    && crypto::seal_file(&state_dir().join("vault.bin"), &bytes).is_ok()
+                {
+                    ok = true;
+                }
             }
             let _ = fs::remove_file(&snap);
         }
-        self.dirty.store(false, Ordering::SeqCst);
+        if ok {
+            self.dirty.store(false, Ordering::SeqCst);
+        }
     }
 
     pub fn spawn_saver(self: std::sync::Arc<Self>) {
@@ -211,6 +217,7 @@ impl Store {
     }
 
     pub fn import(&self, likes: &[Track], history: &[Track]) {
+        self.touch();
         for t in likes {
             let _ = self.conn.lock().unwrap().execute(
                 "INSERT OR IGNORE INTO likes(id, title, artist, album, duration, thumbnail, artist_id, is_album)
@@ -279,34 +286,62 @@ impl Store {
 
     pub fn playlist_add(&self, pid: i64, t: &Track, after_id: Option<&str>) {
         let conn = self.conn.lock().unwrap();
-        let pos = match after_id {
-            Some(aid) => conn
-                .query_row("SELECT pos FROM playlist_tracks WHERE pid = ? AND id = ?", params![pid, aid], |r| r.get::<_, i64>(0))
-                .optional()
-                .ok()
-                .flatten()
-                .map(|p| p + 1),
-            None => None,
+        let Ok(mut stmt) = conn.prepare(&format!(
+            "SELECT {} FROM playlist_tracks WHERE pid = ? ORDER BY pos",
+            tcols()
+        )) else {
+            return;
         };
-        let pos = match pos {
-            Some(p) => {
-                let _ = conn.execute(
-                    "UPDATE playlist_tracks SET pos = pos + 1 WHERE pid = ? AND pos >= ?",
-                    params![pid, p],
-                );
-                p
-            }
-            None => conn
-                .query_row("SELECT COALESCE(MAX(pos), 0) + 1 FROM playlist_tracks WHERE pid = ?", params![pid], |r| r.get(0))
-                .unwrap_or(1),
+        let Ok(iter) = stmt.query_map(params![pid], row_track) else {
+            return;
         };
-        let _ = conn.execute(
-            "INSERT OR REPLACE INTO playlist_tracks(pid, pos, id, title, artist, album, duration, thumbnail, artist_id, is_album)
+        let Ok(mut rows) = iter.collect::<rusqlite::Result<Vec<Track>>>() else {
+            return;
+        };
+        drop(stmt);
+        rows.retain(|x| x.id != t.id);
+        let at = after_id
+            .and_then(|aid| rows.iter().position(|x| x.id == aid))
+            .map(|i| i + 1)
+            .unwrap_or(rows.len())
+            .min(rows.len());
+        rows.insert(at, t.clone());
+        let Ok(tx) = conn.unchecked_transaction() else {
+            return;
+        };
+        if tx.execute("DELETE FROM playlist_tracks WHERE pid = ?", params![pid]).is_err() {
+            return;
+        }
+        let Ok(mut stmt) = tx.prepare(
+            "INSERT INTO playlist_tracks(pid, pos, id, title, artist, album, duration, thumbnail, artist_id, is_album)
              VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            params![pid, pos, t.id, t.title, t.artist, t.album, t.duration, t.thumbnail, t.artist_id, t.is_album as i64],
-        );
-        drop(conn);
-        self.touch();
+        ) else {
+            return;
+        };
+        for (i, x) in rows.iter().enumerate() {
+            if stmt
+                .execute(params![
+                    pid,
+                i as i64 + 1,
+                x.id,
+                x.title,
+                x.artist,
+                x.album,
+                x.duration,
+                x.thumbnail,
+                x.artist_id,
+                    x.is_album as i64
+                ])
+                .is_err()
+            {
+                return;
+            }
+        }
+        drop(stmt);
+        if tx.commit().is_ok() {
+            drop(conn);
+            self.touch();
+        }
     }
 
     pub fn playlist_remove(&self, pid: i64, track_id: &str) {

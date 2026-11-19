@@ -19,7 +19,7 @@ const active = (href: string) => (href === '/' ? path === '/' : path.startsWith(
     </svg>
   </div>
   {items.map((i) => (
-    <a href={i.href} class="group flex w-full flex-col items-center gap-1 py-1 text-xs" aria-label={i.label}>
+    <a href={i.href} class="group flex w-full flex-col items-center gap-1 py-1 text-xs" aria-label={i.label} aria-current={active(i.href) ? 'page' : undefined}>
       <span class:list={['press grid h-8 w-14 place-items-center rounded-full', active(i.href) ? 'bg-secondary-container text-on-secondary-container' : 'group-hover:bg-surface-container-highest']}>
         <span class:list={['ms', active(i.href) && 'fill']}>{i.icon}</span>
       </span>

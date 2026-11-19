@@ -9,14 +9,16 @@ import Layout from '../layouts/Layout.astro';
   <div id="history-list" class="space-y-1"></div>
 </Layout>
 <script>
-  import { clearHistory, getHistory, removeHistory } from '../lib/library';
+  import { clearHistory, getHistory, initLibrary, removeHistory, subscribe } from '../lib/library';
   import { confirmDialog } from '../lib/ui';
   import { renderTracks } from '../lib/ui';
   import { onPage } from '../lib/page';
 
-  onPage('/history', () => {
+  onPage('/history', async () => {
     const list = document.getElementById('history-list');
     if (!list) return;
+    await initLibrary().catch(() => {});
+    if (!list.isConnected) return;
     const draw = () =>
       renderTracks(list, getHistory(), {
         onRemove: (t) => {
@@ -24,6 +26,8 @@ import Layout from '../layouts/Layout.astro';
           draw();
         },
       });
+    const off = subscribe(draw);
+    window.addEventListener('astro:before-swap', () => off(), { once: true });
     document.getElementById('clear-history')!.addEventListener('click', async () => {
       if (!(await confirmDialog('Clear your listening history?'))) return;
       clearHistory();

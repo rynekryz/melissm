@@ -26,17 +26,27 @@ import Layout from '../layouts/Layout.astro';
   import type { Track } from '../lib/player';
 
   onPage('/', async () => {
-    await initLibrary();
-    const sectionsEl = document.getElementById('sections')!;
+    const sectionsEl = document.getElementById('sections');
+    if (!sectionsEl) return;
+    await initLibrary().catch(() => {});
+    if (!sectionsEl.isConnected) return;
     const greeting = document.getElementById('greeting')!;
     const greetSub = document.getElementById('greet-sub')!;
+    let recSig = '';
     const sub = subscribe(() => {
       const sec = document.getElementById('recent-section');
       const row = document.getElementById('recent-row');
       if (!sec || !row) return;
       const recents = getHistory();
       sec.classList.toggle('hidden', !recents.length);
-      if (recents.length) renderCards(row, recents, { row: true });
+      if (!recents.length) {
+        recSig = '';
+        return;
+      }
+      const sig = recents.map((t) => t.id).join('|');
+      if (sig === recSig) return;
+      recSig = sig;
+      renderCards(row, recents, { row: true });
     });
     window.addEventListener('astro:before-swap', () => sub(), { once: true });
     if (!greeting.dataset.done) {
@@ -50,12 +60,14 @@ import Layout from '../layouts/Layout.astro';
     if (recents.length) {
       document.getElementById('recent-section')!.classList.remove('hidden');
       renderCards(document.getElementById('recent-row')!, recents, { row: true });
+      recSig = recents.map((t) => t.id).join('|');
       const seen = new Map<string, number>();
       for (const t of recents) if (t.artist) seen.set(t.artist, (seen.get(t.artist) ?? 0) + 1);
       const tops = [...seen.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map((e) => e[0]);
       const fetched = await Promise.all(
         tops.map((artist) => playlistsForYou(artist).catch(() => [] as Track[])),
       );
+      if (!sectionsEl.isConnected) return;
       const cards: Track[] = [];
       const have = new Set<string>();
       for (const list of fetched) {
@@ -79,6 +91,7 @@ import Layout from '../layouts/Layout.astro';
     const status = document.getElementById('home-status')!;
     try {
       const sections = await home();
+      if (!sectionsEl.isConnected) return;
       for (const s of sections) {
         if (!s.tracks.length) continue;
         const sec = document.createElement('section');

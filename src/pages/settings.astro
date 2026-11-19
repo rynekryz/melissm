@@ -210,9 +210,10 @@ import Layout from '../layouts/Layout.astro';
       <button id="reset-all" class="chip">Reset everything</button>
     </div>
     <p id="cache-status" class="mt-4 text-sm text-on-surface-variant"></p>
+    <p id="data-status" class="mt-2 text-sm text-on-surface-variant"></p>
   </section>
 
-  <div class="fixed right-[3.5vw] top-[12vh] bottom-[7.5rem] z-10 hidden items-center justify-center 2xl:flex">
+  <div id="snake-wrap" class="fixed right-[3.5vw] top-[12vh] bottom-[7.5rem] z-10 hidden items-center justify-center 2xl:flex">
     <p id="snake-score" class="pointer-events-none absolute right-7 top-5 z-10 hidden font-mono text-lg font-semibold tabular-nums">0</p>
     <canvas id="snake-canvas" width="720" height="720" class="block cursor-pointer"></canvas>
   </div>
@@ -221,7 +222,7 @@ import Layout from '../layouts/Layout.astro';
   import { loadOpts, saveOpts, pushTheme, applyScaleSoon, type ThemeOpts } from '../lib/theme';
   import { cacheClear, cacheInfo, getSettings, lyricsSetOffset, lyricsSetProvider, setAutocache, setAutoload, setFusion, setFusionUi, setPanelClose, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
   import { getQuality, getVolume, setVolume, setQuality, setCrossfade, type Quality } from '../lib/player';
-  import { clearLikes, clearHistory } from '../lib/library';
+  import { clearLikes, clearHistory, deletePlaylist, getPlaylists, initLibrary } from '../lib/library';
   import { confirmDialog, esc } from '../lib/ui';
   import { mountSnake } from '../lib/games';
   import { onPage } from '../lib/page';
@@ -250,6 +251,7 @@ import Layout from '../layouts/Layout.astro';
     const cacheToggle = document.getElementById('cache-toggle')!;
     const autoloadToggle = document.getElementById('autoload-toggle')!;
     const cacheStatus = document.getElementById('cache-status')!;
+    const dataStatus = document.getElementById('data-status')!;
     const qualityGroup = document.getElementById('quality-group')!;
     const speedSlider = document.getElementById('speed-slider')!;
     const speedInput = document.getElementById('speed-input') as HTMLInputElement;
@@ -438,7 +440,7 @@ import Layout from '../layouts/Layout.astro';
       if (!(await confirmDialog('Delete all downloaded songs?'))) return;
       await cacheClear();
       void paintCache();
-      status.textContent = 'Downloaded songs cleared.';
+      dataStatus.textContent = 'Downloaded songs cleared.';
     });
     colorInput.addEventListener('input', () => {
       opts.source = { color: colorInput.value };
@@ -559,15 +561,17 @@ import Layout from '../layouts/Layout.astro';
     document.getElementById('clear-recent')!.addEventListener('click', async () => {
       if (!(await confirmDialog('Clear your listening history?'))) return;
       clearHistory();
-      status.textContent = 'Listening history cleared.';
+      dataStatus.textContent = 'Listening history cleared.';
     });
     document.getElementById('clear-likes')!.addEventListener('click', async () => {
       if (!(await confirmDialog('Clear all liked songs?'))) return;
       clearLikes();
-      status.textContent = 'Liked songs cleared.';
+      dataStatus.textContent = 'Liked songs cleared.';
     });
     document.getElementById('reset-all')!.addEventListener('click', async () => {
       if (!(await confirmDialog('Reset everything? Playlists, history and settings will be wiped.'))) return;
+      await initLibrary().catch(() => {});
+      for (const p of [...getPlaylists()]) await deletePlaylist(p.id);
       clearLikes();
       clearHistory();
       localStorage.removeItem('melissm.eq');
@@ -586,8 +590,25 @@ import Layout from '../layouts/Layout.astro';
       setCrossfade(0);
       void setSpeed(1);
       void setPitch(1);
+      void setVolume(1);
+      volInput.value = '100';
+      volLabel.textContent = '100';
+      void lyricsSetProvider('lrclib', true);
+      void lyricsSetProvider('netease', true);
+      lyrLrclib.classList.add('on');
+      lyrNetease.classList.add('on');
+      void setAutocache(true);
+      void setAutoload(true);
+      void setPanelClose(true);
+      void setFusion(false);
+      void setFusionUi(true);
+      cacheToggle.dataset.on = 'true';
+      autoloadToggle.dataset.on = 'true';
+      panelToggle.dataset.on = 'true';
+      fusionUiToggle.dataset.on = 'true';
       eq.forEach((g, i) => void setEq(i, g));
-      status.textContent = 'Everything reset to defaults.';
+      paintLyrOffset();
+      dataStatus.textContent = 'Everything reset to defaults.';
     });
 
     const paintLyrOffset = () => {
@@ -627,10 +648,19 @@ import Layout from '../layouts/Layout.astro';
       })
       .catch(() => {});
 
+    const wrap = document.getElementById('snake-wrap');
+    if (wrap && wrap.parentElement !== document.body) document.body.appendChild(wrap);
     const stopGame = mountSnake(
       document.getElementById('snake-canvas') as HTMLCanvasElement,
       document.getElementById('snake-score')!,
     );
-    window.addEventListener('astro:before-swap', stopGame, { once: true });
+    window.addEventListener(
+      'astro:before-swap',
+      () => {
+        stopGame();
+        wrap?.remove();
+      },
+      { once: true },
+    );
   });
 </script>

@@ -85,8 +85,24 @@ export function toggle() {
   void invoke('toggle_play_cmd');
 }
 
-export const toggleShuffle = () => isTauri && void invoke('toggle_shuffle_cmd');
-export const cycleRepeat = () => isTauri && void invoke('cycle_repeat_cmd');
+export const toggleShuffle = () => {
+  if (!isTauri) return;
+  state.shuffle = !state.shuffle;
+  emit();
+  void invoke('toggle_shuffle_cmd').catch(() => {
+    state.shuffle = !state.shuffle;
+    emit();
+  });
+};
+export const cycleRepeat = () => {
+  if (!isTauri) return;
+  state.repeat = state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off';
+  emit();
+  void invoke('cycle_repeat_cmd').catch(() => {
+    state.repeat = state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off';
+    emit();
+  });
+};
 
 export function setQuality(quality: Quality) {
   state.quality = quality;
@@ -103,6 +119,7 @@ export async function seek(seconds: number) {
 
 export function setVolume(value: number) {
   state.volume = value;
+  userVolume = true;
   if (isTauri) void invoke('volume', { value });
 }
 
@@ -149,6 +166,8 @@ const playingHeld = (reported: boolean) => {
 
 let seekHold = 0;
 let seekTarget = 0;
+let queueSeq = 0;
+let userVolume = false;
 
 if (isTauri) {
   listen<{
@@ -158,6 +177,7 @@ if (isTauri) {
     repeat: RepeatMode;
     loading: boolean;
   }>('queue-state', (e) => {
+    queueSeq++;
     state.tracks = e.payload.tracks;
     state.index = e.payload.index;
     state.shuffle = e.payload.shuffle;
@@ -183,20 +203,23 @@ if (isTauri) {
     bus.dispatchEvent(new CustomEvent('error', { detail: String(e.payload) }));
   });
   void (async () => {
+    const seq = queueSeq;
     try {
-      const [queue, settings] = await Promise.all([
-        invoke<{ tracks: Track[]; index: number; shuffle: boolean; repeat: RepeatMode; loading: boolean }>(
-          'get_queue',
-        ),
-        getSettings(),
-      ]);
-      state.tracks = queue.tracks;
-      state.index = queue.index;
-      state.loading = queue.loading;
-      state.shuffle = queue.shuffle;
-      state.repeat = queue.repeat;
-      const vol = parseFloat(settings.volume ?? '1');
-      state.volume = Number.isFinite(vol) ? Math.min(1, Math.max(0, vol)) : 1;
+      const queue = await invoke<{ tracks: Track[]; index: number; shuffle: boolean; repeat: RepeatMode; loading: boolean }>(
+        'get_queue',
+      );
+      if (seq === queueSeq) {
+        state.tracks = queue.tracks;
+        state.index = queue.index;
+        state.loading = queue.loading;
+        state.shuffle = queue.shuffle;
+        state.repeat = queue.repeat;
+      }
+      const settings = await getSettings();
+      if (!userVolume) {
+        const vol = parseFloat(settings.volume ?? '1');
+        state.volume = Number.isFinite(vol) ? Math.min(1, Math.max(0, vol)) : 1;
+      }
       if (['max', 'high', 'low'].includes(settings.quality)) state.quality = settings.quality as Quality;
       const fade = parseInt(settings.crossfade ?? '0', 10);
       state.crossfade = Number.isFinite(fade) ? fade : 0;

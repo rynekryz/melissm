@@ -49,9 +49,16 @@ pub fn open(data: &[u8]) -> Option<Vec<u8>> {
 
 pub fn seal_file(path: &Path, plain: &[u8]) -> Result<(), String> {
     let sealed = seal(plain)?;
-    let tmp = path.with_extension("tmp");
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = path.with_extension(format!("{}-{nanos}.tmp", std::process::id()));
     fs::write(&tmp, sealed).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| e.to_string())
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 pub fn open_file(path: &Path) -> Option<Vec<u8>> {

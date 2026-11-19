@@ -143,14 +143,17 @@ export function applyScaleSoon(opts: ThemeOpts) {
 }
 
 let lastApplied = '';
+let pushSeq = 0;
 
 export async function pushTheme(opts: ThemeOpts, force = false): Promise<boolean> {
   applyEffects(opts);
   const sig = JSON.stringify({ m: opts.mode, s: opts.scheme, c: opts.source });
   if (!isTauri) return false;
   if (sig === lastApplied && !force) return true;
+  const seq = ++pushSeq;
   try {
     const colors = await setTheme({ mode: opts.mode, scheme: opts.scheme, source: opts.source });
+    if (seq !== pushSeq) return false;
     lastApplied = sig;
     apply(colors, opts.mode, true);
     return true;

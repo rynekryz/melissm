@@ -134,17 +134,17 @@ pub fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let player = Player { app: app.clone() };
         let root = Root { app };
-        match Builder::session()
-            .unwrap()
-            .name(NAME)
-            .unwrap()
-            .serve_at(PATH, root)
-            .unwrap()
-            .serve_at(PATH, player)
-            .unwrap()
-            .build()
-            .await
-        {
+        let built = (|| {
+            let b = Builder::session().map_err(|e| format!("session: {e}"))?;
+            let b = b.name(NAME).map_err(|e| e.to_string())?;
+            let b = b.serve_at(PATH, root).map_err(|e| e.to_string())?;
+            b.serve_at(PATH, player).map_err(|e| e.to_string())
+        })();
+        let result = match built {
+            Ok(b) => b.build().await.map_err(|e| e.to_string()),
+            Err(e) => Err(e),
+        };
+        match result {
             Ok(c) => *CONN.lock().unwrap() = Some(c),
             Err(e) => {
                 eprintln!("mpris: {e}");

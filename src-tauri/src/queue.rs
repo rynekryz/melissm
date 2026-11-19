@@ -64,6 +64,25 @@ impl QueueState {
         Some(if n >= cur { n + 1 } else { n })
     }
 
+    pub fn peek_manual_next(&self, cur: usize) -> Option<usize> {
+        if self.tracks.is_empty() {
+            return None;
+        }
+        if self.shuffle {
+            if self.tracks.len() == 1 {
+                return if self.repeat == Repeat::All { Some(0) } else { None };
+            }
+            return self.random_other(cur);
+        }
+        if cur + 1 < self.tracks.len() {
+            return Some(cur + 1);
+        }
+        if self.repeat == Repeat::All {
+            return Some(0);
+        }
+        None
+    }
+
     pub fn peek_next(&self, cur: usize) -> Option<usize> {
         if self.tracks.is_empty() {
             return None;
@@ -72,6 +91,9 @@ impl QueueState {
             return Some(cur);
         }
         if self.shuffle {
+            if self.tracks.len() == 1 {
+                return if self.repeat == Repeat::All { Some(0) } else { None };
+            }
             return self.random_other(cur);
         }
         if cur + 1 < self.tracks.len() {

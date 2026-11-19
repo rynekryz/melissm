@@ -15,36 +15,51 @@ import Layout from '../layouts/Layout.astro';
   <div id="p-tracks" class="space-y-1"></div>
 </Layout>
 <script>
-  import { fetchPlaylistTracks, removeFromPlaylist, renamePlaylist } from '../lib/library';
-  import { playQueue } from '../lib/player';
+  import { fetchPlaylistTracks, getPlaylists, initLibrary, removeFromPlaylist, renamePlaylist } from '../lib/library';
+  import { playQueue, type Track } from '../lib/player';
   import { renderTracks } from '../lib/ui';
   import { navigate } from 'astro:transitions/client';
   import { onPage } from '../lib/page';
 
+  let seq = 0;
+
   onPage('/playlist', async () => {
     const id = parseInt(new URLSearchParams(location.search).get('id') ?? '', 10);
     if (!Number.isFinite(id) || id <= 0) return navigate('/library');
+    const run = ++seq;
     const nameEl = document.getElementById('p-name')!;
     const countEl = document.getElementById('p-count')!;
     const list = document.getElementById('p-tracks')!;
+    const playAll = document.getElementById('play-all')!;
+    const renameBtn = document.getElementById('p-rename')!;
+    await initLibrary().catch(() => {});
+    if (run !== seq || !nameEl.isConnected) return;
+    const meta = getPlaylists().find((p) => p.id === id);
+    if (meta) {
+      nameEl.textContent = meta.name;
+      document.title = `${meta.name} · Melissm`;
+    }
+    let tracks: Track[] = [];
     const draw = async () => {
-      const tracks = await fetchPlaylistTracks(id);
+      const next = await fetchPlaylistTracks(id);
+      if (run !== seq || !list.isConnected) return;
+      tracks = next;
       countEl.textContent = `${tracks.length} song${tracks.length === 1 ? '' : 's'}`;
       renderTracks(list, tracks, {
         onRemove: (t) => {
           void removeFromPlaylist(id, t.id).then(draw);
         },
       });
-      document.getElementById('play-all')!.onclick = () => tracks.length && playQueue(tracks, 0);
     };
-    document.getElementById('p-rename')!.onclick = async () => {
+    playAll.addEventListener('click', () => tracks.length && playQueue(tracks, 0));
+    renameBtn.addEventListener('click', async () => {
       const name = window.prompt('Rename playlist', nameEl.textContent ?? '');
-      if (name) {
-        await renamePlaylist(id, name);
-        nameEl.textContent = name.trim();
-        document.title = `${name.trim()} · Melissm`;
-      }
-    };
+      if (!name) return;
+      await renamePlaylist(id, name);
+      if (run !== seq || !nameEl.isConnected) return;
+      nameEl.textContent = name.trim();
+      document.title = `${name.trim()} · Melissm`;
+    });
     await draw();
   });
 </script>

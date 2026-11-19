@@ -57,6 +57,8 @@ struct AppState {
     position: Mutex<f64>,
     quality: Mutex<String>,
     tags: AtomicU64,
+    preload_gen: AtomicU64,
+    queue_gen: AtomicU64,
     fusion: Mutex<Fusion>,
     bpms: Mutex<HashMap<String, f64>>,
     bpms_pending: Mutex<HashSet<String>>,
@@ -160,14 +162,14 @@ fn update_artwork(app: AppHandle, t: Track) {
                 None
             } else {
                 match state.yt.http.get(&thumb).send().await {
-                    Ok(r) => match r.bytes().await {
+                    Ok(r) if r.status().is_success() => match r.bytes().await {
                         Ok(bytes) => {
                             let _ = state.cache.store_art(&id, &bytes);
                             state.cache.art_plain(&id)
                         }
                         Err(_) => None,
                     },
-                    Err(_) => None,
+                    _ => None,
                 }
             }
         };
@@ -200,8 +202,10 @@ fn cache_track(http: reqwest::Client, cache: Cache, id: String, url: String) {
     }
     tauri::async_runtime::spawn(async move {
         if let Ok(r) = http.get(&url).send().await {
-            if let Ok(bytes) = r.bytes().await {
-                let _ = cache.store_audio(&id, &bytes);
+            if r.status().is_success() {
+                if let Ok(bytes) = r.bytes().await {
+                    let _ = cache.store_audio(&id, &bytes);
+                }
             }
         }
     });
@@ -209,6 +213,7 @@ fn cache_track(http: reqwest::Client, cache: Cache, id: String, url: String) {
 
 async fn start_index(app: AppHandle, i: usize, push_history: bool) {
     let state = app.state::<AppState>();
+    let gen = state.queue_gen.fetch_add(1, Ordering::SeqCst) + 1;
     {
         let mut f = state.fusion.lock().unwrap();
         f.target = None;
@@ -235,9 +240,15 @@ async fn start_index(app: AppHandle, i: usize, push_history: bool) {
     emit_queue(&app);
     let quality = state.quality.lock().unwrap().clone();
     let resolved = resolve_url(&state, &t.id, &quality).await;
+    if state.queue_gen.load(Ordering::SeqCst) != gen {
+        return;
+    }
     let (url, dur, ua) = match resolved {
         Ok(r) => r,
         Err(e) => {
+            if state.queue_gen.load(Ordering::SeqCst) != gen {
+                return;
+            }
             let mut q = state.queue.lock().unwrap();
             q.loading = false;
             drop(q);
@@ -327,7 +338,7 @@ async fn extend_radio(app: AppHandle) -> bool {
     true
 }
 
-async fn advance(app: AppHandle, force: Option<usize>) {
+async fn advance(app: AppHandle, force: Option<usize>, manual: bool) {
     let state = app.state::<AppState>();
     let cur = {
         let q = state.queue.lock().unwrap();
@@ -339,7 +350,14 @@ async fn advance(app: AppHandle, force: Option<usize>) {
     let next = match force {
         Some(i) => Some(i),
         None => {
-            let peek = { state.queue.lock().unwrap().peek_next(cur.max(0) as usize) };
+            let peek = {
+                let q = state.queue.lock().unwrap();
+                if manual {
+                    q.peek_manual_next(cur.max(0) as usize)
+                } else {
+                    q.peek_next(cur.max(0) as usize)
+                }
+            };
             peek.or_else(|| None::<usize>)
         }
     };
@@ -419,14 +437,15 @@ async fn handle_ended(app: AppHandle, tag: u64, gapless: bool) {
                 return;
             }
         }
-        advance(app, None).await;
+        advance(app, None, false).await;
         return;
     }
-    advance(app, None).await;
+    advance(app, None, false).await;
 }
 
 async fn preload_next(app: AppHandle) {
     let state = app.state::<AppState>();
+    let gen = state.preload_gen.fetch_add(1, Ordering::SeqCst) + 1;
     if state.fusion.lock().unwrap().enabled {
         fusion_preload(&app).await;
         return;
@@ -453,15 +472,19 @@ async fn preload_next(app: AppHandle) {
     let Some(id) = id else { return };
     let quality = state.quality.lock().unwrap().clone();
     let Ok((url, _dur, ua)) = resolve_url(&state, &id, &quality).await else {
-        let mut q = state.queue.lock().unwrap();
-        q.expected_next = None;
-        state.player.send(Cmd::CancelPreload);
+        if state.preload_gen.load(Ordering::SeqCst) == gen {
+            let mut q = state.queue.lock().unwrap();
+            q.expected_next = None;
+            state.player.send(Cmd::CancelPreload);
+        }
         return;
     };
+    if state.preload_gen.load(Ordering::SeqCst) != gen {
+        return;
+    }
     {
         let mut q = state.queue.lock().unwrap();
-        let still = q.peek_next(cur as usize) == Some(idx) && q.index == cur;
-        if !still {
+        if q.index != cur {
             return;
         }
         q.expected_next = Some((tag, idx));
@@ -471,6 +494,7 @@ async fn preload_next(app: AppHandle) {
 
 async fn fusion_preload(app: &AppHandle) {
     let state = app.state::<AppState>();
+    let gen = state.preload_gen.fetch_add(1, Ordering::SeqCst) + 1;
     let (enabled, parked, ready, mixes) = {
         let f = state.fusion.lock().unwrap();
         (f.enabled, f.parked.clone(), f.target.is_some(), f.mixes)
@@ -478,58 +502,83 @@ async fn fusion_preload(app: &AppHandle) {
     if !enabled || ready {
         return;
     }
-    let choice = {
+    let pick = || -> Option<(usize, usize, f64, bool)> {
         let q = state.queue.lock().unwrap();
         let cur = q.index;
         if cur < 0 || q.tracks.len() < 2 || q.repeat == Repeat::One {
-            None
-        } else {
-            let cur = cur as usize;
-            let deep = (mixes % 4 == 3).then(|| {
-                let start = cur + 2;
-                if start >= q.tracks.len() {
-                    return None;
-                }
-                let span = q.tracks.len() - start;
-                let idx = if span > 1 && (mixes as usize / 4) % 3 == 0 {
-                    q.tracks.len() - 1
-                } else {
-                    start + (mixes as usize * 7 + 3) % span
-                };
-                let d = q.tracks[idx].duration;
+            return None;
+        }
+        let cur = cur as usize;
+        let deep = (mixes % 4 == 3).then(|| {
+            let start = cur + 2;
+            if start >= q.tracks.len() {
+                return None;
+            }
+            let span = q.tracks.len() - start;
+            let idx = if span > 1 && (mixes as usize / 4) % 3 == 0 {
+                q.tracks.len() - 1
+            } else {
+                start + (mixes as usize * 7 + 3) % span
+            };
+            let d = q.tracks[idx].duration;
+            let mut pos = 0.0;
+            if d > 90.0 {
+                pos = (d * 0.33).clamp(25.0, 75.0).min(d - 60.0);
+            }
+            Some((cur, idx, pos, false))
+        });
+        let resume = parked.iter().rev().find_map(|(i, p)| {
+            if *i == cur || *i >= q.tracks.len() {
+                return None;
+            }
+            let d = q.tracks[*i].duration;
+            if d > 0.0 && *p < d - 25.0 {
+                Some((cur, *i, *p, true))
+            } else {
+                None
+            }
+        });
+        deep.flatten().or(resume).or_else(|| {
+            q.peek_next(cur).filter(|i| *i != cur).map(|i| {
+                let d = q.tracks[i].duration;
                 let mut pos = 0.0;
                 if d > 90.0 {
                     pos = (d * 0.33).clamp(25.0, 75.0).min(d - 60.0);
                 }
-                Some((cur, idx, pos, false))
-            });
-            let resume = parked.iter().rev().find_map(|(i, p)| {
-                if *i == cur || *i >= q.tracks.len() {
-                    return None;
-                }
-                let d = q.tracks[*i].duration;
-                if d > 0.0 && *p < d - 25.0 {
-                    Some((cur, *i, *p, true))
-                } else {
-                    None
-                }
-            });
-            deep.flatten().or(resume).or_else(|| {
-                q.peek_next(cur).filter(|i| *i != cur).map(|i| {
-                    let d = q.tracks[i].duration;
-                    let mut pos = 0.0;
-                    if d > 90.0 {
-                        pos = (d * 0.33).clamp(25.0, 75.0).min(d - 60.0);
-                    }
-                    (cur, i, pos, false)
-                })
+                (cur, i, pos, false)
             })
-        }
+        })
     };
+    let mut choice = pick();
+    if choice.is_none() {
+        let (repeat, src) = {
+            let q = state.queue.lock().unwrap();
+            (q.repeat, q.source.clone())
+        };
+        if repeat == Repeat::Off && state.fusion.lock().unwrap().enabled {
+            let grew = if src.is_some() {
+                let autoload = state
+                    .store
+                    .setting("autoload")
+                    .map(|v| v != "0")
+                    .unwrap_or(true);
+                autoload && load_more_playlist(app.clone()).await
+            } else {
+                extend_radio(app.clone()).await
+            };
+            if grew {
+                choice = pick();
+            }
+        }
+    }
     let Some((cur, idx, pos, resume)) = choice else {
         state.player.send(Cmd::CancelPreload);
         return;
     };
+    if !state.fusion.lock().unwrap().enabled {
+        state.player.send(Cmd::CancelPreload);
+        return;
+    }
     let (id, dur) = match state.queue.lock().unwrap().tracks.get(idx) {
         Some(t) => (t.id.clone(), t.duration),
         None => return,
@@ -539,6 +588,9 @@ async fn fusion_preload(app: &AppHandle) {
         state.player.send(Cmd::CancelPreload);
         return;
     };
+    if state.preload_gen.load(Ordering::SeqCst) != gen {
+        return;
+    }
     let mut pos = pos;
     let bpm = state.bpms.lock().unwrap().get(&id).copied();
     let pick = state.in_points.lock().unwrap().get(&id).copied();
@@ -564,6 +616,9 @@ async fn fusion_preload(app: &AppHandle) {
         }
     }
     let tag = state.tags.fetch_add(1, Ordering::SeqCst) + 1;
+    if state.preload_gen.load(Ordering::SeqCst) != gen {
+        return;
+    }
     {
         let mut f = state.fusion.lock().unwrap();
         let mut q = state.queue.lock().unwrap();
@@ -707,9 +762,12 @@ async fn set_fusion(app: AppHandle, enabled: bool) -> Result<(), String> {
         f.enabled = enabled;
         f.parked.clear();
         f.target = None;
+        f.pending = None;
     }
     if enabled {
         state.player.send(Cmd::MixClock);
+    } else {
+        state.player.send(Cmd::CancelMix);
     }
     state.player.send(Cmd::CancelPreload);
     preload_next(app.clone()).await;
@@ -735,8 +793,12 @@ fn skip_prev(app: &AppHandle) {
             }
         }
         found.or_else(|| {
-            if !q.shuffle && cur > 0 {
+            if q.shuffle {
+                None
+            } else if cur > 0 {
                 Some(cur - 1)
+            } else if q.repeat == Repeat::All && !q.tracks.is_empty() {
+                Some(q.tracks.len() as isize - 1)
             } else {
                 None
             }
@@ -766,9 +828,16 @@ fn toggle_shuffle(app: &AppHandle) {
     {
         let mut q = state.queue.lock().unwrap();
         q.shuffle = !q.shuffle;
-        q.prev.clear();
+        q.expected_next = None;
         state.store.set_setting("shuffle", if q.shuffle { "1" } else { "0" });
     }
+    {
+        let mut f = state.fusion.lock().unwrap();
+        f.target = None;
+        f.pending = None;
+    }
+    state.player.send(Cmd::CancelMix);
+    state.player.send(Cmd::CancelPreload);
     push_flags(app);
     emit_queue(&app);
     tauri::async_runtime::spawn(preload_next(app.clone()));
@@ -783,8 +852,16 @@ fn cycle_repeat(app: &AppHandle) {
             Repeat::All => Repeat::One,
             Repeat::One => Repeat::Off,
         };
+        q.expected_next = None;
         state.store.set_setting("repeat", q.repeat.as_str());
     }
+    {
+        let mut f = state.fusion.lock().unwrap();
+        f.target = None;
+        f.pending = None;
+    }
+    state.player.send(Cmd::CancelMix);
+    state.player.send(Cmd::CancelPreload);
     push_flags(app);
     emit_queue(&app);
     tauri::async_runtime::spawn(preload_next(app.clone()));
@@ -792,10 +869,12 @@ fn cycle_repeat(app: &AppHandle) {
 
 fn reset_fusion(app: &AppHandle) {
     let state = app.state::<AppState>();
+    state.player.send(Cmd::CancelMix);
     let mut f = state.fusion.lock().unwrap();
     f.parked.clear();
     f.mixes = 0;
     f.target = None;
+    f.pending = None;
 }
 
 fn reschedule_preload(app: &AppHandle) {
@@ -809,7 +888,7 @@ pub fn native_action(app: &AppHandle, action: &str) {
         "play-pause" => toggle_play(app),
         "next" => {
             let a = app.clone();
-            tauri::async_runtime::spawn(async move { advance(a, None).await });
+            tauri::async_runtime::spawn(async move { advance(a, None, true).await });
         }
         "previous" => skip_prev(app),
         "shuffle" => toggle_shuffle(app),
@@ -917,13 +996,13 @@ async fn play_radio(app: AppHandle, track: Track) -> Result<(), String> {
 
 #[tauri::command]
 async fn play_at(app: AppHandle, index: usize) -> Result<(), String> {
-    advance(app.clone(), Some(index)).await;
+    advance(app.clone(), Some(index), false).await;
     Ok(())
 }
 
 #[tauri::command]
 async fn skip_next(app: AppHandle) -> Result<(), String> {
-    advance(app.clone(), None).await;
+    advance(app.clone(), None, true).await;
     Ok(())
 }
 
@@ -1003,6 +1082,9 @@ fn set_pitch(state: State<'_, AppState>, value: f64) {
 
 #[tauri::command]
 fn set_eq(state: State<'_, AppState>, band: u32, gain: f64) {
+    if band >= 10 {
+        return;
+    }
     state.player.set_eq(band, gain);
     let mut eq: Vec<f64> = state
         .store
@@ -1081,7 +1163,12 @@ fn remove_from_queue(app: AppHandle, index: usize) {
     if (index as isize) < q.index {
         q.index -= 1;
     }
-    q.prev.retain(|p| *p != index);
+    q.prev = q
+        .prev
+        .iter()
+        .filter(|p| **p != index)
+        .map(|p| if *p > index { *p - 1 } else { *p })
+        .collect();
     q.expected_next = None;
     drop(q);
     reset_fusion(&app);
@@ -1099,6 +1186,19 @@ fn move_in_queue(app: AppHandle, from: usize, to: usize) {
     }
     let t = q.tracks.remove(from);
     q.tracks.insert(to, t);
+    let shift = |i: usize| {
+        if from < to && i > from && i <= to {
+            i - 1
+        } else if from > to && i >= to && i < from {
+            i + 1
+        } else {
+            i
+        }
+    };
+    if q.index >= 0 {
+        q.index = shift(q.index as usize) as isize;
+    }
+    q.prev = q.prev.iter().map(|p| shift(*p)).collect();
     q.expected_next = None;
     drop(q);
     reset_fusion(&app);
@@ -1324,6 +1424,15 @@ fn main() {
                     }
                     Event::Failed(msg) => {
                         let _ = cb_app.emit("playback-failed", msg);
+                        if let Some(state) = cb_app.try_state::<AppState>() {
+                            let mut info = state.info.lock().unwrap();
+                            if info.playing {
+                                info.playing = false;
+                                drop(info);
+                                drop(state);
+                                refresh_tray(&cb_app);
+                            }
+                        }
                     }
                     Event::Lull { position, fade, urgent } => {
                         fusion_lull(&cb_app, position, fade, urgent);
@@ -1408,6 +1517,8 @@ fn main() {
                 in_points: Mutex::new(HashMap::new()),
                 quality: Mutex::new(store.setting("quality").unwrap_or_else(|| "max".into())),
                 tags: AtomicU64::new(1),
+                preload_gen: AtomicU64::new(0),
+                queue_gen: AtomicU64::new(0),
             });
             theming::watch(handle.clone(), opts.clone());
             #[cfg(target_os = "linux")]
