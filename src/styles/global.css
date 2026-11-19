@@ -121,7 +121,7 @@ button, [role="button"] { cursor: pointer; }
 #p-full.open .fp-art { border-radius: 32px; }
 #p-full #fp-lyr-wrap { position: absolute; top: 10vh; bottom: 10vh; right: 4vw; width: min(38vw, 520px); display: flex; flex-direction: column; opacity: 0; transform: translateX(90px) scale(0.96); pointer-events: none; transition: transform 0.55s var(--spring), opacity 0.4s; }
 #p-full.fp-lyr #fp-lyr-wrap { opacity: 1; transform: none; pointer-events: auto; }
-#p-full.fp-lyr .fp-pop { transform: translateX(-26%) scale(0.75); }
+#p-full.fp-lyr .fp-pop { transform: translateX(-26%) scale(0.825); }
 #p-full #fpl-body .lyric { font-size: 1.75rem; font-weight: 550; }
 
 #lyr-full { position: fixed; inset: 0; z-index: 45; overflow: hidden; visibility: hidden; opacity: 0; pointer-events: none; background: var(--md-sys-color-surface-container-low); transition: opacity 0.4s, visibility 0.4s; }
@@ -145,8 +145,10 @@ button, [role="button"] { cursor: pointer; }
 }
 
 .press { transition: background-color 0.3s; }
-.press .ms { transition: transform 0.2s var(--spring); }
+.press .ms { pointer-events: none; transition: transform 0.2s var(--spring); }
+.press img, .press svg { pointer-events: none; }
 .press:active .ms { transform: scale(0.86); }
+#player button:focus, #player button:focus-visible, #p-full button:focus, #p-full button:focus-visible, #lyr-full button:focus, #lyr-full button:focus-visible { outline: none !important; }
 *:focus { outline: none; }
 *:focus-visible { outline: none; }
 html[data-input="key"] *:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 3px; }
