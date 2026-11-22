@@ -1,8 +1,8 @@
 <div align="center">
 <img src="icons/icon.png" width="160" height="160" style="display: block; margin: 0 auto"/>
 <h1>Melissm</h1>
-<p>It plays music, literally. what else would it do</p>
-<p>A music streaming app for Arch Linux. Astro + Tauri v2 (Rust), GStreamer playback, Material 3 Expressive UI themed live from your wallpaper via Matugen.</p>
+<p>It plays music, literally. What else would it do?</p>
+<p>A music app for Arch Linux with streaming, synced lyrics, and a Material 3 Expressive UI that themes itself from your wallpaper.</p>
 </div>
 <p align="center">
   <a href="https://github.com/rynekryz/melissm/stargazers"><img src="assets/badges/stars.svg" alt="GitHub stars" height="30"/></a>
@@ -13,6 +13,12 @@
   <img src="assets/badges/astro.svg" alt="Astro"/>
 </p>
 
+<p align="center">
+  <a href="https://github.com/rynekryz/melissm/releases"><img src="assets/badges/getgithub.svg" alt="Get it on GitHub" height="56"/></a>
+</p>
+
+---
+
 ## Screenshots
 
 <div align="center">
@@ -20,27 +26,61 @@
 <img src="/Screenshots/151036.png" width="49%" />
 </div>
 
-## Installing
+---
 
-### Requirements
-- Arch Linux or an Arch-based distro (you know who you are)
-- Git
+## Features
 
-### Install from PKGBUILD
+- Tauri v2 + Rust backend, no Electron and no bundled Chromium, your RAM is safe here
+- Streams audio straight from YouTube Music, no video overhead, the GPU can chill
+- Live Material 3 Expressive theming from your wallpaper via Matugen, or any color you like
+- Caelestia scheme fallback when wallpaper extraction gives up
+- MPRIS controls, so it shows up in your media widget with lyrics
+- Search, Home, Album, Artist, Playlist, Library and History
+- Native queue: play next, add to queue, reorder, radio, clear upcoming
+- Gapless playback and optional crossfade
+- Playlists, liked songs and history stored locally
+- Synced lyrics from LRCLIB with word-by-word timing, NetEase as backup
+- Write your own lyrics or fix the timing with an offset, fullscreen too
+- Tray controls, so you can pause when the boss walks by
+- Speed, pitch, equalizer and audio quality
+- Played songs get cached for instant replay
+- Single instance, clicking again just focuses the window
+- Material Web Components + Tailwind CSS 4
+- Desktop entry and GTK app id so your launcher knows it exists
+- It plays music, literally
+- etc.
+
+---
+
+## Technical Stack
+
+- **Shell:** Astro with Tauri v2 (Rust)
+- **UI:** Material Web Components and Tailwind CSS 4
+- **Playback:** GStreamer
+- **Database:** SQLite through rusqlite
+- **Network:** reqwest
+- **Theming:** Matugen
+- **Language:** TypeScript, Astro and Rust
+- **Build:** npm, Cargo and a PKGBUILD
+
+---
+
+## Building
+
+You'll need Arch Linux (or an Arch-based distro, you know who you are) and Git.
+
+### From the PKGBUILD
+
 ```bash
 git clone https://github.com/rynekryz/melissm.git
 cd melissm
 makepkg -si
 ```
 
-### Build from source
-Install deps:
+### From source
+
 ```bash
 sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg alsa-lib nodejs npm rust matugen gstreamer gst-plugins-good gst-plugins-bad gst-libav
-```
-
-Then:
-```bash
 git clone https://github.com/rynekryz/melissm.git
 cd melissm
 npm install
@@ -48,31 +88,30 @@ npm run tauri dev
 npm run tauri build
 ```
 
-## Features
+---
 
-- Tauri v2 + Rust backend, no Electron, no bundled Chromium, your RAM is safe here
-- Streams audio straight from YouTube Music, no video overhead, the GPU can chill
-- Live Material 3 Expressive theming from your wallpaper via Matugen, or pick any color you want
-- Caelestia scheme fallback when wallpaper extraction doesn't work out
-- MPRIS media controls, shows up in your system media widget with lyrics
-- Search, Home, Album, Artist, Playlist, Library and History
-- Native queue with play next, add to queue, reorder, radio and clear upcoming
-- Gapless playback and optional crossfade
-- Playlists, liked songs and listening history stored locally
-- Synced lyrics from LRCLIB with word-by-word timing, NetEase as backup
-- Write your own lyrics or fix the timing with an offset, fullscreen mode too
-- System tray with playback controls, so you can pause when the boss walks by
-- Speed, pitch, equalizer and audio quality, tune it how you like
-- Songs you play get cached for instant replay
-- Single instance, clicking the app again just focuses the one already running
-- Material Web Components + Tailwind CSS 4
-- Desktop entry and GTK app id so your app launcher actually knows it exists
-- It plays music, literally
-- etc.
+## Project Structure
+
+```
+Melissm/
+├── src/
+│   ├── components/
+│   ├── layouts/
+│   ├── lib/
+│   ├── pages/
+│   └── styles/
+├── src-tauri/
+│   └── src/
+├── icons/
+├── public/
+└── PKGBUILD
+```
+
+---
 
 ## Legal
 
-Melissm is an independent, open-source music player and is not affiliated with, funded by, authorized by, or endorsed by YouTube, Google LLC, or any of their affiliates or subsidiaries. All trademarks, service marks and other intellectual property referenced here belong to their respective owners. Melissm does not host, distribute or own any media content, all playback streams directly from YouTube Music.
+Melissm is an independent open-source music player, not affiliated with or endorsed by YouTube or Google LLC. All trademarks belong to their owners. It doesn't host or distribute any media; playback streams straight from YouTube Music.
 
 ## Credits
 
@@ -80,7 +119,7 @@ Extractor approach and lyrics provider design from [Metrolist](https://github.co
 
 ## License
 
-Licensed under GPL-3.0-or-later. See [LICENSE](LICENSE) for details.
+Licensed under GPL-3.0-or-later. See [LICENSE](LICENSE).
 
 <div align="center">
 <strong>Made with ♥︎ by Ryne</strong>
