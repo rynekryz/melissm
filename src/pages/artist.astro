@@ -34,6 +34,7 @@ import Layout from '../layouts/Layout.astro';
       content.innerHTML = '';
       if (page.top.length) {
         const sec = document.createElement('section');
+        sec.className = 'section-in';
         sec.innerHTML = `<h2 class="mb-3 text-2xl font-medium">Popular</h2><div class="space-y-1"></div>`;
         content.appendChild(sec);
         renderTracks(sec.querySelector('div')!, page.top);
@@ -45,6 +46,7 @@ import Layout from '../layouts/Layout.astro';
       for (const [title, cards] of rows) {
         if (!cards.length) continue;
         const sec = document.createElement('section');
+        sec.className = 'section-in';
         sec.innerHTML = `<h2 class="mb-4 text-2xl font-medium"></h2><div class="h-row flex"></div>`;
         sec.querySelector('h2')!.textContent = title;
         renderCards(sec.querySelector('div')!, cards, { row: true });

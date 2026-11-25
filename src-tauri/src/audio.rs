@@ -286,12 +286,11 @@ impl Tempo {
 
 pub struct Analysis {
     pub bpm: Option<f64>,
-    pub pick: Option<f64>,
 }
 
-pub fn analyze(url: &str, ua: &str, duration: f64) -> Analysis {
+pub fn analyze(url: &str, ua: &str) -> Analysis {
     use gstreamer::MessageView;
-    let mut out = Analysis { bpm: None, pick: None };
+    let mut out = Analysis { bpm: None };
     if gstreamer::init().is_err() {
         return out;
     }
@@ -372,45 +371,6 @@ pub fn analyze(url: &str, ua: &str, duration: f64) -> Analysis {
     }
     out.bpm = tempo.estimate();
 
-    let target = if duration > 40.0 {
-        (duration * 0.33).clamp(15.0, 100.0)
-    } else {
-        (duration * 0.4).max(12.0)
-    };
-    let from = (target - 2.0).max(0.0);
-    let seek = playbin.seek_simple(
-        SeekFlags::FLUSH | SeekFlags::KEY_UNIT,
-        ClockTime::from_mseconds((from * 1000.0) as u64),
-    );
-    if seek.is_ok() {
-        while bus.timed_pop(ClockTime::ZERO).is_some() {}
-        let mut prev = f64::NEG_INFINITY;
-        let mut best: Option<(f64, f64)> = None;
-        let start = Instant::now();
-        loop {
-            if start.elapsed() > Duration::from_secs(8) {
-                break;
-            }
-            let Some(msg) = bus.timed_pop(ClockTime::from_mseconds(100)) else { continue };
-            if let Some((rms, at)) = rms_of(&msg) {
-                if at > from + 0.4 && prev.is_finite() && rms > prev + 6.0 && rms > -30.0 {
-                    let strength = rms - prev;
-                    if best.is_none_or(|(s, _)| strength > s) {
-                        best = Some((strength, at));
-                    }
-                }
-                if at > from + 5.5 {
-                    break;
-                }
-                prev = rms;
-            }
-            if matches!(msg.view(), MessageView::Eos(..) | MessageView::Error(..)) {
-                break;
-            }
-        }
-        out.pick = best.map(|(_, p)| (p - 0.02).max(0.0));
-    }
-
     let _ = playbin.set_state(State::Null);
     out
 }
@@ -446,15 +406,10 @@ fn run(
     let mut fading = false;
     let mut fade_pos = 0.0f64;
     let mut duration = 0.0f64;
-    let mut quiet = [None::<Instant>; 2];
     let mut mixing = false;
     let mut mix_secs = 0.0f64;
-    let mut last_mix = Instant::now() - Duration::from_secs(600);
     let mut pending_seek = [None::<f64>; 2];
     let mut loud = [false; 2];
-    let mut ema = [f64::NEG_INFINITY; 2];
-    let mut dip = [None::<Instant>; 2];
-    let mut mild = [None::<Instant>; 2];
     let mut tail_sent = [false; 2];
     let mut tempo = Tempo::new();
     let mut tempo_ratio = [1.0f64; 2];
@@ -485,14 +440,9 @@ fn run(
                 fading = false;
                 fade_pos = 0.0;
                 mixing = false;
-                quiet = [None, None];
                 pending_seek = [None, None];
                 loud = [false, false];
-                ema = [f64::NEG_INFINITY; 2];
-                dip = [None, None];
-                mild = [None, None];
                 tail_sent = [false, false];
-                last_mix = Instant::now();
                 tempo.reset();
                 tempo_ratio = [1.0, 1.0];
                 bpm_last = 0.0;
@@ -549,7 +499,6 @@ fn run(
             }
             Ok(Cmd::Pause) => {
                 queued = None;
-                quiet[active] = None;
                 let c = &mut chains[active];
                 if c.playbin.current_state() >= State::Paused {
                     let _ = c.playbin.set_state(State::Paused);
@@ -562,7 +511,6 @@ fn run(
                 }
             }
             Ok(Cmd::Resume) => {
-                quiet[active] = None;
                 let c = &mut chains[active];
                 if c.ended {
                     let _ = c.playbin.seek_simple(SeekFlags::FLUSH | SeekFlags::KEY_UNIT, ClockTime::ZERO);
@@ -588,14 +536,12 @@ fn run(
                 fading = false;
                 fade_pos = 0.0;
                 mixing = false;
-                quiet = [None, None];
                 duration = 0.0;
                 let _ = app.emit("player-state", Status::default());
             }
             Ok(Cmd::Seek(t)) => {
                 beat_ref = -1.0;
                 prev_rms = f64::NEG_INFINITY;
-                quiet[active] = None;
                 let c = &mut chains[active];
                 if c.playbin.current_state() >= State::Paused {
                     let _ = c.playbin.seek_simple(
@@ -614,10 +560,6 @@ fn run(
                 fade_secs = f64::from(s);
             }
             Ok(Cmd::MixClock) => {
-                last_mix = Instant::now();
-                quiet = [None, None];
-                dip = [None, None];
-                mild = [None, None];
                 tail_sent = [false, false];
                 tempo.reset();
                 bpm_last = 0.0;
@@ -700,11 +642,20 @@ fn run(
                     chains[other].gain = 0.0;
                     chains[other].apply_volume(volume);
                     let _ = chains[other].playbin.set_state(State::Playing);
-                    mix_secs = fade.max(1.0);
+                    let now_pos = chains[active]
+                        .playbin
+                        .query_position::<ClockTime>()
+                        .map(|v| v.seconds() as f64)
+                        .unwrap_or(0.0);
+                    let room = if duration > 0.0 {
+                        (duration - now_pos - 0.15).max(1.0)
+                    } else {
+                        fade
+                    };
+                    mix_secs = fade.min(room).max(1.0);
                     mix_t0 = Instant::now();
                     mixing = true;
                     fading = false;
-                    quiet = [None, None];
                     loud = [false, false];
                 } else if Instant::now() >= at + Duration::from_millis(1500) {
                     queued = None;
@@ -742,14 +693,9 @@ fn run(
         if mixing {
             let mix_pos = mix_t0.elapsed().as_secs_f64();
             let k = (mix_pos / mix_secs).min(1.0);
-            let smooth = |x: f64| {
-                let x = x.clamp(0.0, 1.0);
-                x * x * (3.0 - 2.0 * x)
-            };
-            let rise = (1.4 / mix_secs).clamp(0.12, 0.45);
-            let attack = smooth(k / rise);
-            let in_gain = 0.85 * attack + 0.15 * smooth((k - 0.4) / 0.6);
-            let out_gain = 1.0 - smooth((k - 0.45) / 0.55);
+            let angle = k * std::f64::consts::FRAC_PI_2;
+            let out_gain = angle.cos();
+            let in_gain = angle.sin();
             chains[active].gain = out_gain;
             chains[active].apply_volume(volume);
             let other = 1 - active;
@@ -761,20 +707,15 @@ fn run(
                     .query_position::<ClockTime>()
                     .map(|v| v.seconds() as f64)
                     .unwrap_or(0.0);
-                let user = *speed.lock().unwrap();
-                chains[active].filter.pitch.set_property("tempo", user.clamp(0.5, 2.0) as f32);
-                tempo_ratio[active] = 1.0;
                 chains[active].stop();
                 chains[active].gain = 1.0;
                 active = other;
+                let user = *speed.lock().unwrap();
+                chains[active].filter.pitch.set_property("tempo", user.clamp(0.5, 2.0) as f32);
+                tempo_ratio[active] = 1.0;
                 chains[active].gain = 1.0;
                 chains[active].apply_volume(volume);
                 mixing = false;
-                last_mix = Instant::now();
-                quiet = [None, None];
-                ema = [f64::NEG_INFINITY; 2];
-                dip = [None, None];
-                mild = [None, None];
                 tail_sent = [false, false];
                 tempo.reset();
                 bpm_last = 0.0;
@@ -805,12 +746,8 @@ fn run(
                                         .fold(f64::NEG_INFINITY, f64::max)
                                 })
                                 .unwrap_or(f64::NEG_INFINITY);
-                            if rms.is_finite() {
-                                ema[ci] = if ema[ci].is_finite() {
-                                    ema[ci] * 0.92 + rms * 0.08
-                                } else {
-                                    rms
-                                };
+                            if rms.is_finite() && rms > -18.0 {
+                                loud[ci] = true;
                             }
                             tempo.push(rms);
                             if beat_period > 0.05 {
@@ -836,69 +773,20 @@ fn run(
                                 }
                             }
                             prev_rms = rms;
-                            if rms > -18.0 {
-                                quiet[ci] = None;
-                                loud[ci] = true;
-                            }
-                            let now = Instant::now();
-                            let avg = ema[ci];
                             if let Some(pos) = chains[ci].playbin.query_position::<ClockTime>() {
                                 let p = pos.seconds() as f64;
                                 let remain = duration - p;
-                                let can = p >= 15.0 && remain >= 5.5 && loud[ci];
-                                let mut fire: Option<f64> = None;
-                                if can && rms < -28.0 {
-                                    let since = *quiet[ci].get_or_insert(now);
-                                    if now.duration_since(since) >= Duration::from_millis(700) {
-                                        fire = Some(5.0);
-                                    }
-                                } else {
-                                    quiet[ci] = None;
-                                }
-                                if can && avg > -24.0 && rms < avg - 6.0 {
-                                    let since = *dip[ci].get_or_insert(now);
-                                    if now.duration_since(since) >= Duration::from_millis(500) {
-                                        fire = Some(5.0);
-                                    }
-                                } else {
-                                    dip[ci] = None;
-                                }
-                                if fire.is_none()
-                                    && loud[ci]
-                                    && duration > 0.0
-                                    && p >= 12.0
-                                    && remain <= 6.0
-                                    && remain >= 0.6
+                                if loud[ci]
                                     && !tail_sent[ci]
+                                    && duration > 0.0
+                                    && p >= 15.0
+                                    && remain <= 12.0
+                                    && remain >= 3.0
                                 {
                                     tail_sent[ci] = true;
-                                    fire = Some(3.8);
-                                }
-                                if fire.is_none() {
-                                    let gap = last_mix.elapsed();
-                                    if gap >= Duration::from_secs(45) && p >= 25.0 && remain >= 8.0 {
-                                        if gap >= Duration::from_secs(60) {
-                                            fire = Some(6.0);
-                                        } else if avg.is_finite() && rms < avg - 1.0 {
-                                            let since = *mild[ci].get_or_insert(now);
-                                            if now.duration_since(since) >= Duration::from_millis(300) {
-                                                fire = Some(5.5);
-                                            }
-                                        } else {
-                                            mild[ci] = None;
-                                        }
-                                    } else {
-                                        mild[ci] = None;
-                                    }
-                                }
-                                if let Some(fade) = fire {
-                                    quiet[ci] = None;
-                                    dip[ci] = None;
-                                    mild[ci] = None;
-                                    last_mix = now;
-                                    let urgent = duration > 0.0 && (duration - p) < 9.0;
+                                    let fade = (remain - 1.0).clamp(4.0, 8.0);
                                     if let Some(f) = cb.lock().unwrap().as_ref() {
-                                        f(Event::Lull { position: p, fade, urgent });
+                                        f(Event::Lull { position: p, fade, urgent: false });
                                     }
                                 }
                             }
@@ -932,12 +820,8 @@ fn run(
                         mixing = false;
                         queued = None;
                         duration = 0.0;
-                        quiet = [None, None];
                         pending_seek = [None, None];
                         loud = [false, false];
-                        ema = [f64::NEG_INFINITY; 2];
-                        dip = [None, None];
-                        mild = [None, None];
                         tail_sent = [false, false];
                         tempo.reset();
                         tempo_ratio = [1.0, 1.0];
@@ -962,13 +846,11 @@ fn run(
                             active = other;
                             fading = false;
                             fade_pos = 0.0;
+                            let user = *speed.lock().unwrap();
+                            chains[active].filter.pitch.set_property("tempo", user.clamp(0.5, 2.0) as f32);
                             chains[active].gain = 1.0;
-                            quiet = [None, None];
                             pending_seek = [None, None];
                             loud = [false, false];
-                            ema = [f64::NEG_INFINITY; 2];
-                            dip = [None, None];
-                            mild = [None, None];
                             tail_sent = [false, false];
                             tempo.reset();
                             tempo_ratio = [1.0, 1.0];
@@ -976,7 +858,6 @@ fn run(
                             beat_period = 0.0;
                             beat_ref = -1.0;
                             prev_rms = f64::NEG_INFINITY;
-                            last_mix = Instant::now();
                             if let Some(f) = cb.lock().unwrap().as_ref() {
                                 f(Event::Ended { tag, gapless: true });
                             }

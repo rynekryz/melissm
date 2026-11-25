@@ -19,19 +19,27 @@ import Layout from '../layouts/Layout.astro';
 
   onPage('/playlists', () => {
     const plEl = document.getElementById('playlists')!;
+    let seenPl = new Set<number>();
     const draw = () => {
       const lists = getPlaylists();
+      const prev = seenPl;
+      seenPl = new Set(lists.map((p) => p.id));
+      let born = 0;
       plEl.innerHTML = lists.length
         ? lists
             .map(
-              (p) => `<div class="playlist-card group" data-id="${p.id}">
+              (p) => {
+                const fresh = !prev.has(p.id);
+                const delay = fresh ? ` style="animation-delay:${Math.min(born++, 16) * 50}ms"` : '';
+                return `<div class="playlist-card group${fresh ? ' card-in' : ''}" data-id="${p.id}"${delay}>
             <div class="relative aspect-square w-full">
               <div class="absolute inset-0 grid place-items-center rounded-[32px] bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60" style="font-size:56px">queue_music</span></div>
               <button data-del class="press absolute right-2 top-2 grid size-9 place-items-center rounded-full bg-surface-container/90 text-on-surface opacity-0 transition-opacity group-hover:opacity-100" aria-label="Delete playlist"><span class="ms">delete</span></button>
             </div>
             <div class="mt-3 truncate px-2 font-medium">${esc(p.name)}</div>
             <div class="truncate px-2 text-sm text-on-surface-variant">${p.count} song${p.count === 1 ? '' : 's'}</div>
-          </div>`,
+          </div>`;
+              },
             )
             .join('')
         : '<p class="text-on-surface-variant">No playlists yet. Make one and start adding songs.</p>';

@@ -80,6 +80,7 @@ import Layout from '../layouts/Layout.astro';
       }
       if (cards.length) {
         const sec = document.createElement('section');
+        sec.className = 'section-in';
         sec.innerHTML = `<h2 class="mb-4 text-2xl font-medium"></h2><div class="h-row"></div>`;
         sec.querySelector('h2')!.textContent = `Playlists for you`;
         sectionsEl.insertBefore(sec, document.getElementById('skeleton'));
@@ -95,6 +96,7 @@ import Layout from '../layouts/Layout.astro';
       for (const s of sections) {
         if (!s.tracks.length) continue;
         const sec = document.createElement('section');
+        sec.className = 'section-in';
         sec.innerHTML = `<h2 class="mb-4 text-2xl font-medium"></h2><div class="h-row"></div>`;
         sec.querySelector('h2')!.textContent = s.title;
         const row = sec.querySelector<HTMLElement>('.h-row')!;

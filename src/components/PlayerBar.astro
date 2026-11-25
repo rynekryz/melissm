@@ -64,7 +64,7 @@
   <div class="flex w-[20%] items-center justify-end gap-2">
     <button id="p-queue" class="press icon-toggle grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue" aria-expanded="false"><span class="ms">queue_music</span></button>
     <button id="p-lyrics" class="press icon-toggle grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics" aria-expanded="false"><span class="ms">lyrics</span></button>
-    <button id="p-fusion" class="press icon-toggle grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion" aria-pressed="false"><span class="ms">transition_fade</span></button>
+    <button id="p-fusion" class="press icon-toggle hidden grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion (experimental)" aria-pressed="false"><span class="ms">transition_fade</span></button>
     <span id="p-vol-icon" class="ms text-on-surface-variant">volume_up</span>
     <div class="xslider w-28 shrink-0">
       <input id="p-vol" type="range" min="0" max="100" aria-label="Volume" />
@@ -109,7 +109,7 @@
         <button id="fp-repeat" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span id="fp-repeat-icon" class="ms text-[26px]">repeat</span></button>
         <button id="fp-queue" class="press icon-toggle grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue" aria-expanded="false"><span class="ms text-[26px]">queue_music</span></button>
         <button id="fp-lyrics" class="press icon-toggle grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics" aria-expanded="false"><span class="ms text-[26px]">lyrics</span></button>
-        <button id="fp-fusion" class="press icon-toggle grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion" aria-pressed="false"><span class="ms text-[26px]">transition_fade</span></button>
+        <button id="fp-fusion" class="press icon-toggle hidden grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion (experimental)" aria-pressed="false"><span class="ms text-[26px]">transition_fade</span></button>
       </div>
       <div class="mt-8 flex w-72 items-center gap-3">
         <span id="fp-vol-icon" class="ms text-on-surface-variant">volume_up</span>
@@ -166,7 +166,7 @@
   let fsOpen = false;
   let panelClose = true;
   let fusionOn = false;
-  let fusionUi = true;
+  let fusionUi = false;
   let lastSynced = '';
   const lycOffset = () => parseFloat(localStorage.getItem('melissm.lyrics_offset') ?? '0') || 0;
   const failedLyricsForCurrent = () => !!current() && current()!.id === lyricsFailId;
@@ -190,7 +190,7 @@
     void getSettings()
       .then((s) => {
         panelClose = s.panel_close !== '0';
-        fusionUi = s.fusion_ui !== '0';
+        fusionUi = s.fusion_ui === '1';
         fusionOn = fusionUi && s.fusion === '1';
         paintFusion();
       })

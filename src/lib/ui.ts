@@ -35,8 +35,8 @@ export function renderTracks(el: HTMLElement, tracks: Track[], opts: TrackOpts =
   el.innerHTML = tracks
     .map(
       (t, i) => {
-        const fresh = !!prev?.size && !prev.has(t.id);
-        const delay = fresh ? ` style="animation-delay:${born++ * 40}ms"` : '';
+        const fresh = !prev || !prev.has(t.id);
+        const delay = fresh ? ` style="animation-delay:${Math.min(born++, 16) * 40}ms"` : '';
         return `<div class="track${fresh ? ' track-in' : ''}" data-i="${i}" data-id="${t.id}"${delay}>
         ${art(t, 'size-14 rounded-2xl shrink-0')}
         <div class="min-w-0 flex-1"><div class="truncate font-medium">${esc(t.title)}</div><div class="truncate text-sm opacity-70">${t.artist_id && !t.is_album ? `<span data-artist class="cursor-pointer py-2 hover:font-semibold">${esc(t.artist)}</span>` : esc(t.artist)}${t.album && !t.is_album ? ' • ' + esc(t.album) : ''}</div></div>
@@ -138,6 +138,49 @@ export function confirmDialog(message: string): Promise<boolean> {
   });
 }
 
+export function promptDialog(message: string, value = '', confirmLabel = 'Save'): Promise<string | null> {
+  return new Promise((resolve) => {
+    const back = document.createElement('div');
+    back.className = 'modal-back fixed inset-0 z-[70] grid place-items-center bg-black/50 p-6 backdrop-blur-lg';
+    back.innerHTML = `<div class="modal-card w-full max-w-sm rounded-[28px] bg-surface-container-high p-6 shadow-2xl shadow-black/50">
+      <p class="text-lg font-medium">${esc(message)}</p>
+      <input data-field type="text" aria-label="${esc(message)}" autocomplete="off" spellcheck="false" value="${esc(value)}" class="mt-4 w-full rounded-2xl bg-surface-container-highest px-4 py-3 text-on-surface outline-none" />
+      <div class="mt-6 flex justify-end gap-2">
+        <button data-no class="press h-12 rounded-full px-6 font-medium hover:bg-surface-container-highest">Cancel</button>
+        <button data-yes class="press h-12 rounded-full px-6 font-medium text-primary hover:bg-primary/10">${esc(confirmLabel)}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(back);
+    const field = back.querySelector<HTMLInputElement>('[data-field]')!;
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        done(null);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        submit();
+      }
+    };
+    const done = (v: string | null) => {
+      document.removeEventListener('keydown', key, true);
+      back.remove();
+      resolve(v);
+    };
+    const submit = () => {
+      const name = field.value.trim();
+      done(name ? name : null);
+    };
+    document.addEventListener('keydown', key, true);
+    back.querySelector('[data-no]')!.addEventListener('click', () => done(null));
+    back.querySelector('[data-yes]')!.addEventListener('click', submit);
+    back.addEventListener('click', (e) => {
+      if (e.target === back) done(null);
+    });
+    field.focus();
+    field.select();
+  });
+}
+
 function openPlaylistMenu(anchor: HTMLElement, track: Track) {
   closeMenu();
   const lists = getPlaylists();
@@ -165,8 +208,8 @@ function openPlaylistMenu(anchor: HTMLElement, track: Track) {
     if (!b) return;
     closeMenu();
     if (b.dataset.new) {
-      const name = window.prompt('New playlist name');
-      if (name?.trim()) {
+      const name = await promptDialog('New playlist name', '', 'Create');
+      if (name) {
         const id = await createPlaylist(name);
         if (id) await addToPlaylist(id, track);
       }
@@ -190,8 +233,8 @@ export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: bool
   el.innerHTML = tracks
     .map(
       (t, i) => {
-        const fresh = !!prev?.size && !prev.has(t.id);
-        const delay = fresh ? ` style="animation-delay:${born++ * 50}ms"` : '';
+        const fresh = !prev || !prev.has(t.id);
+        const delay = fresh ? ` style="animation-delay:${Math.min(born++, 16) * 50}ms"` : '';
         return `<div class="card group${fresh ? ' card-in' : ''} ${size}" data-i="${i}" data-id="${t.id}"${delay}>
         <div class="relative">
           ${art(t, `card-art aspect-square w-full rounded-[32px] shadow-lg shadow-black/30`)}

@@ -17,7 +17,7 @@ import Layout from '../layouts/Layout.astro';
 <script>
   import { fetchPlaylistTracks, getPlaylists, initLibrary, removeFromPlaylist, renamePlaylist } from '../lib/library';
   import { playQueue, type Track } from '../lib/player';
-  import { renderTracks } from '../lib/ui';
+  import { promptDialog, renderTracks } from '../lib/ui';
   import { navigate } from 'astro:transitions/client';
   import { onPage } from '../lib/page';
 
@@ -53,7 +53,7 @@ import Layout from '../layouts/Layout.astro';
     };
     playAll.addEventListener('click', () => tracks.length && playQueue(tracks, 0));
     renameBtn.addEventListener('click', async () => {
-      const name = window.prompt('Rename playlist', nameEl.textContent ?? '');
+      const name = await promptDialog('Rename playlist', nameEl.textContent ?? '', 'Save');
       if (!name) return;
       await renamePlaylist(id, name);
       if (run !== seq || !nameEl.isConnected) return;

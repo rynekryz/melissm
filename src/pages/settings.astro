@@ -67,10 +67,10 @@ import Layout from '../layouts/Layout.astro';
     </div>
     <div class="mb-5 flex items-center justify-between">
       <div>
-        <p class="font-medium">Fussion</p>
-        <p class="text-sm text-on-surface-variant">Beat matched blends between songs. Turn this off to hide the toggle next to the player controls.</p>
+        <p class="font-medium">Fussion (experimental)</p>
+        <p class="text-sm text-on-surface-variant">Experimental beat matched blends between songs. Turn this on to show the toggle next to the player controls.</p>
       </div>
-      <button id="fusion-ui-toggle" class="switch" data-on="true"><span class="knob"></span></button>
+      <button id="fusion-ui-toggle" class="switch" data-on="false"><span class="knob"></span></button>
     </div>
     <div>
       <p class="font-medium">UI scale</p>
@@ -410,7 +410,7 @@ import Layout from '../layouts/Layout.astro';
       lyrLrclib.classList.toggle('on', s.lyr_lrclib !== '0');
       lyrNetease.classList.toggle('on', s.lyr_netease !== '0');
       panelToggle.dataset.on = String(s.panel_close !== '0');
-      fusionUiToggle.dataset.on = String(s.fusion_ui !== '0');
+      fusionUiToggle.dataset.on = String(s.fusion_ui === '1');
       return s.autocache !== '0';
     });
     cacheToggle.addEventListener('click', async () => {
@@ -430,7 +430,7 @@ import Layout from '../layouts/Layout.astro';
       window.dispatchEvent(new CustomEvent('melissm:panel-close', { detail: on }));
     });
     fusionUiToggle.addEventListener('click', () => {
-      const on = (fusionUiToggle.dataset.on ?? 'true') !== 'true';
+      const on = (fusionUiToggle.dataset.on ?? 'false') !== 'true';
       fusionUiToggle.dataset.on = String(on);
       void setFusionUi(on);
       if (!on) void setFusion(false);
@@ -601,11 +601,12 @@ import Layout from '../layouts/Layout.astro';
       void setAutoload(true);
       void setPanelClose(true);
       void setFusion(false);
-      void setFusionUi(true);
+      void setFusionUi(false);
+      window.dispatchEvent(new CustomEvent('melissm:fusion-ui', { detail: false }));
       cacheToggle.dataset.on = 'true';
       autoloadToggle.dataset.on = 'true';
       panelToggle.dataset.on = 'true';
-      fusionUiToggle.dataset.on = 'true';
+      fusionUiToggle.dataset.on = 'false';
       eq.forEach((g, i) => void setEq(i, g));
       paintLyrOffset();
       dataStatus.textContent = 'Everything reset to defaults.';
