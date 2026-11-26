@@ -7,16 +7,51 @@ export const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s %
 export const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-const art = (t: Track, cls: string) =>
+export type ArtQuality = 'max' | 'high' | 'low' | 'auto';
+
+let artQuality: ArtQuality | null = null;
+
+export const getArtQuality = (): ArtQuality => {
+  if (artQuality) return artQuality;
+  const q = typeof localStorage !== 'undefined' ? localStorage.getItem('melissm.art') : null;
+  artQuality = q === 'high' || q === 'low' || q === 'auto' ? q : 'max';
+  return artQuality;
+};
+
+export const setArtQuality = (q: ArtQuality) => {
+  artQuality = q;
+  localStorage.setItem('melissm.art', q);
+};
+
+const fit = (url: string, size: number) =>
+  url.includes('googleusercontent') ? url.replace(/=w\d+-h\d+/, `=w${size}-h${size}`) : url;
+
+const artPixels = (css: number) => {
+  const q = getArtQuality();
+  if (q === 'max') return 544;
+  if (q === 'high') return 336;
+  if (q === 'low') return 168;
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  return Math.min(544, Math.max(168, Math.round(css * dpr)));
+};
+
+export const artUrl = (url: string, css = 168) => fit(url, artPixels(css));
+
+const art = (t: Track, cls: string, css = 168) =>
   t.thumbnail
-    ? `<img src="${esc(t.thumbnail)}" alt="" loading="lazy" class="${cls} object-cover bg-surface-container-highest">`
+    ? `<img src="${esc(artUrl(t.thumbnail, css))}" alt="" loading="lazy" decoding="async" data-art="${esc(t.thumbnail)}" data-artcss="${css}" class="${cls} object-cover bg-surface-container-highest">`
     : `<div class="${cls} grid place-items-center bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60">${t.is_album || t.is_playlist ? 'album' : 'music_note'}</span></div>`;
 
-const markActive = () => {
+let activeId: string | undefined;
+let activeReady = false;
+const markActive = (force = false) => {
   const id = current()?.id;
+  if (!force && activeReady && id === activeId) return;
+  activeId = id;
+  activeReady = true;
   document.querySelectorAll<HTMLElement>('[data-id]').forEach((el) => el.classList.toggle('is-active', el.dataset.id === id));
 };
-if (typeof document !== 'undefined') subscribe(markActive);
+if (typeof document !== 'undefined') subscribe(() => markActive());
 
 export type TrackOpts = { onUnlike?: () => void; onRemove?: (t: Track) => void; radio?: boolean };
 
@@ -38,7 +73,7 @@ export function renderTracks(el: HTMLElement, tracks: Track[], opts: TrackOpts =
         const fresh = !prev || !prev.has(t.id);
         const delay = fresh ? ` style="animation-delay:${Math.min(born++, 16) * 40}ms"` : '';
         return `<div class="track${fresh ? ' track-in' : ''}" data-i="${i}" data-id="${t.id}"${delay}>
-        ${art(t, 'size-14 rounded-2xl shrink-0')}
+        ${art(t, 'size-14 rounded-2xl shrink-0', 56)}
         <div class="min-w-0 flex-1"><div class="truncate font-medium">${esc(t.title)}</div><div class="truncate text-sm opacity-70">${t.artist_id && !t.is_album ? `<span data-artist class="cursor-pointer py-2 hover:font-semibold">${esc(t.artist)}</span>` : esc(t.artist)}${t.album && !t.is_album ? ' • ' + esc(t.album) : ''}</div></div>
         <button data-next class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Play next"><span class="ms text-on-surface-variant">playlist_play</span></button>
         <button data-add class="press grid size-10 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Add to queue"><span class="ms text-on-surface-variant">playlist_add</span></button>
@@ -92,7 +127,7 @@ export function renderTracks(el: HTMLElement, tracks: Track[], opts: TrackOpts =
     if (opts.radio) playRadio(track);
     else playQueue(tracks, +row.dataset.i!);
   };
-  markActive();
+  markActive(true);
 }
 
 let plMenu: HTMLElement | null = null;
@@ -255,4 +290,5 @@ export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: bool
     if (t.is_album || t.is_playlist) return navigate(`/album?id=${t.id}`);
     playQueue(tracks, +row.dataset.i!);
   };
+  markActive(true);
 }

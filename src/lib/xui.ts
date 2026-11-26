@@ -19,14 +19,22 @@ export const initSliders = () => {
 };
 
 if (typeof window !== 'undefined') {
-  window.addEventListener(
-    'pointerup',
-    () => document.querySelectorAll('.xslider.dragging').forEach((el) => el.classList.remove('dragging')),
-    { passive: true },
-  );
+  const w = window as unknown as { __melissmSliderUp?: boolean };
+  if (!w.__melissmSliderUp) {
+    w.__melissmSliderUp = true;
+    window.addEventListener(
+      'pointerup',
+      () => document.querySelectorAll('.xslider.dragging').forEach((el) => el.classList.remove('dragging')),
+      { passive: true },
+    );
+  }
 }
 
 export const initSwipe = () => {
+  if (typeof window === 'undefined') return;
+  const w = window as unknown as { __melissmSwipe?: boolean };
+  if (w.__melissmSwipe) return;
+  w.__melissmSwipe = true;
   let row: HTMLElement | null = null;
   let startX = 0;
   let startScroll = 0;
@@ -112,6 +120,7 @@ export const initSwipe = () => {
   );
   window.addEventListener('pointercancel', drop, { passive: true });
   window.addEventListener('blur', drop, { passive: true });
+  document.addEventListener('astro:before-swap', drop);
   document.addEventListener(
     'click',
     (e) => {

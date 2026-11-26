@@ -16,9 +16,14 @@ import type { Track } from './player';
 import type { PlaylistMeta } from './types';
 
 let likes: Track[] = [];
+let likeIds = new Set<string>();
 let history: Track[] = [];
 let playlists: PlaylistMeta[] = [];
 const bus = new EventTarget();
+const setLikes = (next: Track[]) => {
+  likes = next;
+  likeIds = new Set(next.map((t) => t.id));
+};
 
 const emit = () => bus.dispatchEvent(new Event('change'));
 
@@ -34,7 +39,7 @@ export function initLibrary(): Promise<void> {
   if (!isTauri) return Promise.resolve();
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    likes = await likesList();
+    setLikes(await likesList());
     history = await historyList();
     playlists = await playlistsList();
     if (!likes.length && !history.length) {
@@ -51,7 +56,7 @@ export function initLibrary(): Promise<void> {
         await storeImport(oldLikes, oldRecent);
         localStorage.removeItem('melissm.likes');
         localStorage.removeItem('melissm.recent');
-        likes = await likesList();
+        setLikes(await likesList());
         history = await historyList();
       }
     }
@@ -66,7 +71,7 @@ export function initLibrary(): Promise<void> {
 export const getLikes = () => likes;
 export const getHistory = () => history;
 export const getPlaylists = () => playlists;
-export const isLiked = (id: string) => likes.some((t) => t.id === id);
+export const isLiked = (id: string) => likeIds.has(id);
 
 export async function refreshHistory() {
   if (!isTauri) return;
@@ -77,7 +82,7 @@ export async function refreshHistory() {
 export async function toggleLike(track: Track): Promise<boolean> {
   if (!isTauri) return false;
   const liked = await invoke<boolean>('like_toggle', { track });
-  likes = await likesList();
+  setLikes(await likesList());
   emit();
   return liked;
 }
@@ -85,7 +90,7 @@ export async function toggleLike(track: Track): Promise<boolean> {
 export function clearLikes() {
   if (!isTauri) return;
   void invoke('likes_clear');
-  likes = [];
+  setLikes([]);
   emit();
 }
 

@@ -15,7 +15,7 @@ export type Track = {
   artist_id?: string | null;
 };
 export type RepeatMode = 'off' | 'all' | 'one';
-export type Quality = 'max' | 'high' | 'low';
+export type Quality = 'max' | 'high' | 'low' | 'auto';
 export type PlayerState = {
   tracks: Track[];
   index: number;
@@ -220,7 +220,7 @@ if (isTauri) {
         const vol = parseFloat(settings.volume ?? '1');
         state.volume = Number.isFinite(vol) ? Math.min(1, Math.max(0, vol)) : 1;
       }
-      if (['max', 'high', 'low'].includes(settings.quality)) state.quality = settings.quality as Quality;
+      if (['max', 'high', 'low', 'auto'].includes(settings.quality)) state.quality = settings.quality as Quality;
       const fade = parseInt(settings.crossfade ?? '0', 10);
       state.crossfade = Number.isFinite(fade) ? fade : 0;
       emit();

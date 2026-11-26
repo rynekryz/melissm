@@ -13,7 +13,7 @@ import Layout from '../layouts/Layout.astro';
   import { artist } from '../lib/api';
   import { playQueue } from '../lib/player';
   import type { Track } from '../lib/player';
-  import { esc, renderCards, renderTracks } from '../lib/ui';
+  import { artUrl, esc, renderCards, renderTracks } from '../lib/ui';
   import { onPage } from '../lib/page';
 
   onPage('/artist', async () => {
@@ -27,7 +27,7 @@ import Layout from '../layouts/Layout.astro';
       if (!head.isConnected) return;
       document.title = `${page.name} · Melissm`;
       head.innerHTML = `
-        ${page.thumbnail ? `<img src="${esc(page.thumbnail)}" alt="" class="size-44 shrink-0 rounded-full object-cover shadow-lg shadow-black/30" />` : '<div class="size-44 shrink-0 rounded-full bg-surface-container-highest grid place-items-center"><span class="ms text-on-surface-variant opacity-60" style="font-size:64px">person</span></div>'}
+        ${page.thumbnail ? `<img src="${esc(artUrl(page.thumbnail, 176))}" alt="" data-art="${esc(page.thumbnail)}" data-artcss="176" class="size-44 shrink-0 rounded-full object-cover shadow-lg shadow-black/30" />` : '<div class="size-44 shrink-0 rounded-full bg-surface-container-highest grid place-items-center"><span class="ms text-on-surface-variant opacity-60" style="font-size:64px">person</span></div>'}
         <div class="min-w-0 flex-1">
           <h1 class="truncate text-5xl font-semibold tracking-tight">${esc(page.name)}</h1>
         </div>`;

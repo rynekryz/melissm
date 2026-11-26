@@ -1,6 +1,11 @@
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::{
+    collections::HashMap,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 const BASE: &str = "https://music.youtube.com/youtubei/v1";
 const WEB_UA: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
@@ -92,10 +97,21 @@ pub struct ArtistPage {
     pub singles: Vec<Track>,
 }
 
-#[derive(Clone)]
+struct Stream {
+    url: String,
+    duration: f64,
+    ua: &'static str,
+    at: Instant,
+}
+
 pub struct Yt {
     pub http: Client,
+    streams: Mutex<HashMap<String, Stream>>,
+    visitor: Mutex<Option<(String, Instant)>>,
 }
+
+const STREAM_TTL: Duration = Duration::from_secs(30 * 60);
+const VISITOR_TTL: Duration = Duration::from_secs(60 * 60);
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -303,6 +319,8 @@ impl Yt {
                 .timeout(std::time::Duration::from_secs(20))
                 .build()
                 .expect("http client"),
+            streams: Mutex::new(HashMap::new()),
+            visitor: Mutex::new(None),
         }
     }
 
@@ -476,7 +494,29 @@ impl Yt {
     }
 
     pub async fn resolve_stream(&self, id: &str, quality: &str) -> Result<(String, f64, &'static str), String> {
-        let visitor = extract_visitor(&self.watch_page(id).await.unwrap_or_default());
+        let key = format!("{id}:{quality}");
+        {
+            let mut cache = self.streams.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(s) = cache.get(&key) {
+                if s.at.elapsed() < STREAM_TTL {
+                    return Ok((s.url.clone(), s.duration, s.ua));
+                }
+            }
+            cache.remove(&key);
+        }
+        let visitor = {
+            let cached = self.visitor.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            match cached {
+                Some((v, at)) if at.elapsed() < VISITOR_TTL => v,
+                _ => {
+                    let v = extract_visitor(&self.watch_page(id).await.unwrap_or_default());
+                    if !v.is_empty() {
+                        *self.visitor.lock().unwrap_or_else(|e| e.into_inner()) = Some((v.clone(), Instant::now()));
+                    }
+                    v
+                }
+            }
+        };
 
         for (body, ua, web) in Self::stream_attempts(id, &visitor) {
             let Ok(v) = self.post("player", body, ua, web).await else { continue };
@@ -503,11 +543,24 @@ impl Yt {
                     .copied()
                     .filter(|f| f["bitrate"].as_u64().unwrap_or(0) <= 192_000)
                     .max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)),
+                "auto" => audio.iter().copied().max_by_key(|f| {
+                    let opus = f["mimeType"].as_str().is_some_and(|m| m.contains("opus"));
+                    (opus, f["bitrate"].as_u64().unwrap_or(0))
+                }),
                 _ => audio.iter().copied().max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)),
             };
             let pick = pick.or_else(|| audio.iter().copied().max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)));
             if let Some(f) = pick.and_then(|f| f["url"].as_str()) {
-                return Ok((f.to_string(), duration, ua));
+                let url = f.to_string();
+                let mut cache = self.streams.lock().unwrap_or_else(|e| e.into_inner());
+                cache.retain(|_, s| s.at.elapsed() < STREAM_TTL);
+                if cache.len() >= 64 {
+                    if let Some(old) = cache.iter().min_by_key(|(_, s)| s.at).map(|(k, _)| k.clone()) {
+                        cache.remove(&old);
+                    }
+                }
+                cache.insert(key, Stream { url: url.clone(), duration, ua, at: Instant::now() });
+                return Ok((url, duration, ua));
             }
         }
         Err("no playable stream".into())

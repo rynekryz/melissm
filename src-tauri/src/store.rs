@@ -62,8 +62,18 @@ impl Store {
                 let _ = fs::write(&db, blob);
             }
         }
-        let conn = Connection::open(&db).expect("open store");
-        conn.execute_batch(
+        let conn = match Connection::open(&db) {
+            Ok(c) => c,
+            Err(e) => {
+                crate::log::line(&format!("store open failed: {e}"));
+                let _ = fs::rename(&db, work.join("store.db.broken"));
+                Connection::open(&db).unwrap_or_else(|e| {
+                    crate::log::line(&format!("store reopen failed: {e}"));
+                    Connection::open_in_memory().expect("in-memory store")
+                })
+            }
+        };
+        if let Err(e) = conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS likes(
                 pos INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, title TEXT, artist TEXT,
                 album TEXT, duration REAL, thumbnail TEXT, artist_id TEXT, is_album INTEGER);
@@ -75,9 +85,12 @@ impl Store {
                 pid INTEGER, pos INTEGER, id TEXT, title TEXT, artist TEXT, album TEXT,
                 duration REAL, thumbnail TEXT, artist_id TEXT, is_album INTEGER, PRIMARY KEY(pid,pos));
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
-            CREATE TABLE IF NOT EXISTS lyrics(id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at INTEGER);",
-        )
-        .expect("init store");
+            CREATE TABLE IF NOT EXISTS lyrics(id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at INTEGER);
+            CREATE TABLE IF NOT EXISTS lyrics_cache(id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER);",
+        ) {
+            crate::log::line(&format!("store schema failed: {e}"));
+        }
+        let _ = conn.execute("DELETE FROM settings WHERE key IN ('fusion', 'fusion_ui')", []);
         Self { conn: Mutex::new(conn), dirty: AtomicBool::new(false), last_ts: AtomicI64::new(0), work }
     }
 
@@ -86,7 +99,7 @@ impl Store {
     }
 
     pub fn save(&self) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let snap = self.work.join("snap.db");
         let _ = fs::remove_file(&snap);
         let mut ok = false;
@@ -125,7 +138,7 @@ impl Store {
     }
 
     pub fn set_setting(&self, key: &str, value: &str) {
-        let _ = self.conn.lock().unwrap().execute(
+        let _ = self.conn.lock().unwrap_or_else(|e| e.into_inner()).execute(
             "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![key, value],
         );
@@ -142,7 +155,7 @@ impl Store {
     }
 
     pub fn like_toggle(&self, t: &Track) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let liked: Option<i64> = conn
             .query_row("SELECT 1 FROM likes WHERE id = ?", params![t.id], |r| r.get(0))
             .optional()
@@ -167,7 +180,7 @@ impl Store {
     }
 
     pub fn likes_clear(&self) {
-        let _ = self.conn.lock().unwrap().execute("DELETE FROM likes", []);
+        let _ = self.conn.lock().unwrap_or_else(|e| e.into_inner()).execute("DELETE FROM likes", []);
         self.touch();
     }
 
@@ -188,7 +201,7 @@ impl Store {
             prev = cur;
             ts = now.max(prev + 1);
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let _ = conn.execute("DELETE FROM history WHERE id = ?", params![t.id]);
         let _ = conn.execute(
             "INSERT OR REPLACE INTO history(played_at, id, title, artist, album, duration, thumbnail, artist_id, is_album)
@@ -207,19 +220,19 @@ impl Store {
     }
 
     pub fn history_remove(&self, id: &str) {
-        let _ = self.conn.lock().unwrap().execute("DELETE FROM history WHERE id = ?", params![id]);
+        let _ = self.conn.lock().unwrap_or_else(|e| e.into_inner()).execute("DELETE FROM history WHERE id = ?", params![id]);
         self.touch();
     }
 
     pub fn history_clear(&self) {
-        let _ = self.conn.lock().unwrap().execute("DELETE FROM history", []);
+        let _ = self.conn.lock().unwrap_or_else(|e| e.into_inner()).execute("DELETE FROM history", []);
         self.touch();
     }
 
     pub fn import(&self, likes: &[Track], history: &[Track]) {
         self.touch();
         for t in likes {
-            let _ = self.conn.lock().unwrap().execute(
+            let _ = self.conn.lock().unwrap_or_else(|e| e.into_inner()).execute(
                 "INSERT OR IGNORE INTO likes(id, title, artist, album, duration, thumbnail, artist_id, is_album)
                  VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                 params![t.id, t.title, t.artist, t.album, t.duration, t.thumbnail, t.artist_id, t.is_album as i64],
@@ -248,7 +261,7 @@ impl Store {
     }
 
     pub fn playlist_create(&self, name: &str) -> i64 {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let _ = conn.execute(
             "INSERT INTO playlists(name, created_at) VALUES(?, ?)",
             params![
@@ -263,12 +276,12 @@ impl Store {
     }
 
     pub fn playlist_rename(&self, id: i64, name: &str) {
-        let _ = self.conn.lock().unwrap().execute("UPDATE playlists SET name = ? WHERE id = ?", params![name, id]);
+        let _ = self.conn.lock().unwrap_or_else(|e| e.into_inner()).execute("UPDATE playlists SET name = ? WHERE id = ?", params![name, id]);
         self.touch();
     }
 
     pub fn playlist_delete(&self, id: i64) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let _ = conn.execute("DELETE FROM playlists WHERE id = ?", params![id]);
         let _ = conn.execute("DELETE FROM playlist_tracks WHERE pid = ?", params![id]);
         drop(conn);
@@ -285,7 +298,7 @@ impl Store {
     }
 
     pub fn playlist_add(&self, pid: i64, t: &Track, after_id: Option<&str>) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let Ok(mut stmt) = conn.prepare(&format!(
             "SELECT {} FROM playlist_tracks WHERE pid = ? ORDER BY pos",
             tcols()
@@ -345,7 +358,7 @@ impl Store {
     }
 
     pub fn playlist_remove(&self, pid: i64, track_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let pos: Option<i64> = conn
             .query_row("SELECT pos FROM playlist_tracks WHERE pid = ? AND id = ?", params![pid, track_id], |r| r.get(0))
             .optional()
@@ -373,7 +386,7 @@ impl Store {
     }
 
     pub fn save_custom_lyrics(&self, id: &str, text: &str) {
-        let _ = self.conn.lock().unwrap().execute(
+        let _ = self.conn.lock().unwrap_or_else(|e| e.into_inner()).execute(
             "INSERT INTO lyrics(id, text, updated_at) VALUES(?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at",
             params![id, text, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64],
@@ -382,7 +395,32 @@ impl Store {
     }
 
     pub fn delete_custom_lyrics(&self, id: &str) {
-        let _ = self.conn.lock().unwrap().execute("DELETE FROM lyrics WHERE id = ?", params![id]);
+        let _ = self.conn.lock().unwrap_or_else(|e| e.into_inner()).execute("DELETE FROM lyrics WHERE id = ?", params![id]);
+        self.touch();
+    }
+
+    pub fn cached_lyrics(&self, id: &str) -> Option<String> {
+        let (json, updated): (String, i64) = self
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT json, updated_at FROM lyrics_cache WHERE id = ?", params![id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()
+            .ok()
+            .flatten()?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+        (now - updated < 7 * 24 * 60 * 60).then_some(json)
+    }
+
+    pub fn save_cached_lyrics(&self, id: &str, json: &str) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+        let _ = self.conn.lock().unwrap_or_else(|e| e.into_inner()).execute(
+            "INSERT INTO lyrics_cache(id, json, updated_at) VALUES(?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at",
+            params![id, json, now],
+        );
         self.touch();
     }
 }

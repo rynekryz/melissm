@@ -7,7 +7,7 @@ use std::{
     process::Command,
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter};
 
@@ -43,13 +43,16 @@ impl Default for ThemeOpts {
 pub type SharedOpts = Arc<Mutex<ThemeOpts>>;
 
 static ARTWORK: Mutex<Option<PathBuf>> = Mutex::new(None);
+static PALETTE: Mutex<Option<(String, BTreeMap<String, String>)>> = Mutex::new(None);
+static SYSTEM_DARK: Mutex<Option<(bool, Instant)>> = Mutex::new(None);
+static WALLPAPER: Mutex<Option<(Option<String>, Instant)>> = Mutex::new(None);
 
 pub fn set_artwork(path: Option<String>) {
-    *ARTWORK.lock().unwrap() = path.map(PathBuf::from);
+    *ARTWORK.lock().unwrap_or_else(|e| e.into_inner()) = path.map(PathBuf::from);
 }
 
 fn artwork() -> Option<String> {
-    ARTWORK.lock().unwrap().clone().map(|p| p.to_string_lossy().into_owned())
+    ARTWORK.lock().unwrap_or_else(|e| e.into_inner()).clone().map(|p| p.to_string_lossy().into_owned())
 }
 
 fn run(cmd: &str, args: &[&str]) -> Option<String> {
@@ -63,6 +66,17 @@ fn state_dir() -> String {
 }
 
 pub fn wallpaper() -> Option<String> {
+    if let Some((value, at)) = WALLPAPER.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        if at.elapsed() < Duration::from_secs(2) {
+            return value;
+        }
+    }
+    let value = wallpaper_uncached();
+    *WALLPAPER.lock().unwrap_or_else(|e| e.into_inner()) = Some((value.clone(), Instant::now()));
+    value
+}
+
+fn wallpaper_uncached() -> Option<String> {
     let exists = |p: &str| (!p.is_empty() && fs::metadata(p).is_ok()).then(|| p.to_string());
     if let Ok(p) = fs::read_to_string(format!("{}/caelestia/wallpaper/path.txt", state_dir())) {
         if let Some(p) = exists(p.trim()) {
@@ -91,9 +105,24 @@ pub fn wallpaper() -> Option<String> {
 }
 
 fn system_dark() -> bool {
-    run("gsettings", &["get", "org.gnome.desktop.interface", "color-scheme"])
+    if let Some((value, at)) = *SYSTEM_DARK.lock().unwrap_or_else(|e| e.into_inner()) {
+        if at.elapsed() < Duration::from_secs(5) {
+            return value;
+        }
+    }
+    let value = run("gsettings", &["get", "org.gnome.desktop.interface", "color-scheme"])
         .map(|o| o.contains("dark"))
-        .unwrap_or(true)
+        .unwrap_or(true);
+    *SYSTEM_DARK.lock().unwrap_or_else(|e| e.into_inner()) = Some((value, Instant::now()));
+    value
+}
+
+fn file_stamp(path: &str) -> String {
+    let Ok(m) = fs::metadata(path) else {
+        return String::new();
+    };
+    let modified = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+    format!("{}:{}", m.len(), modified)
 }
 
 fn kebab(s: &str) -> String {
@@ -170,6 +199,22 @@ fn from_caelestia() -> Option<BTreeMap<String, String>> {
     (!map.is_empty()).then_some(map)
 }
 
+fn palette_key(opts: &ThemeOpts, mode: &str) -> String {
+    let (source, stamp) = match &opts.source {
+        Source::Wallpaper => {
+            let path = wallpaper().unwrap_or_default();
+            (format!("wallpaper:{path}"), file_stamp(&path))
+        }
+        Source::Artwork => {
+            let path = artwork().unwrap_or_default();
+            (format!("artwork:{path}"), file_stamp(&path))
+        }
+        Source::Color(c) => (format!("color:{}", hex(c)), String::new()),
+    };
+    let caelestia = file_stamp(&format!("{}/caelestia/scheme.json", state_dir()));
+    format!("{mode}|{}|{source}|{stamp}|{caelestia}", opts.scheme)
+}
+
 pub fn current(opts: &ThemeOpts) -> Option<BTreeMap<String, String>> {
     let mode = match opts.mode {
         Mode::Dark => "dark",
@@ -178,11 +223,21 @@ pub fn current(opts: &ThemeOpts) -> Option<BTreeMap<String, String>> {
             if system_dark() { "dark" } else { "light" }
         }
     };
+    let key = palette_key(opts, mode);
+    if let Some((cached_key, cached)) = PALETTE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if *cached_key == key {
+            return Some(cached.clone());
+        }
+    }
     let palette = from_matugen(opts, mode);
-    match opts.source {
+    let result = match opts.source {
         Source::Color(_) => palette,
         _ => palette.or_else(from_caelestia),
+    };
+    if let Some(palette) = &result {
+        *PALETTE.lock().unwrap_or_else(|e| e.into_inner()) = Some((key, palette.clone()));
     }
+    result
 }
 
 pub fn watch(app: AppHandle, opts: SharedOpts) {
@@ -190,10 +245,10 @@ pub fn watch(app: AppHandle, opts: SharedOpts) {
         let mut last: Option<String> = None;
         loop {
             let mode = {
-                let o = opts.lock().unwrap().clone();
+                let o = opts.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 if !matches!(o.source, Source::Wallpaper) {
                     last = None;
-                    thread::sleep(Duration::from_secs(2));
+                    thread::sleep(Duration::from_secs(10));
                     continue;
                 }
                 o
@@ -205,7 +260,7 @@ pub fn watch(app: AppHandle, opts: SharedOpts) {
                     let _ = app.emit("theme-changed", palette);
                 }
             }
-            thread::sleep(Duration::from_secs(2));
+            thread::sleep(Duration::from_secs(10));
         }
     });
 }

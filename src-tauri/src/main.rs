@@ -2,6 +2,7 @@ mod audio;
 mod crypto;
 mod cache;
 mod innertube;
+mod log;
 mod lyrics;
 #[cfg(target_os = "linux")]
 mod mpris;
@@ -16,7 +17,7 @@ use lyrics::Lyrics;
 use queue::{QueueState, Repeat, Snapshot};
 use serde::Serialize;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::BTreeMap,
     sync::atomic::{AtomicU64, Ordering},
     sync::Mutex,
 };
@@ -29,18 +30,7 @@ use tauri::{
 };
 use theming::{SharedOpts, ThemeOpts};
 
-#[derive(Clone)]
-struct MixTarget {
-    idx: usize,
-    id: String,
-}
-
-#[derive(Default)]
-struct Fusion {
-    enabled: bool,
-    target: Option<MixTarget>,
-    pending: Option<MixTarget>,
-}
+const MAX_AUTO_QUEUE: usize = 1000;
 
 struct AppState {
     yt: Yt,
@@ -55,9 +45,6 @@ struct AppState {
     tags: AtomicU64,
     preload_gen: AtomicU64,
     queue_gen: AtomicU64,
-    fusion: Mutex<Fusion>,
-    bpms: Mutex<HashMap<String, f64>>,
-    bpms_pending: Mutex<HashSet<String>>,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -97,8 +84,8 @@ fn tray_menu(app: &AppHandle, info: &PlayerInfo) -> tauri::Result<Menu<Wry>> {
 
 fn refresh_tray(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let info = state.info.lock().unwrap().clone();
-    let mut tray = state.tray.lock().unwrap();
+    let info = state.info.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let mut tray = state.tray.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(tray) = tray.as_mut() {
         if let Ok(menu) = tray_menu(app, &info) {
             let _ = tray.set_menu(Some(menu));
@@ -108,18 +95,18 @@ fn refresh_tray(app: &AppHandle) {
 
 fn emit_queue(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let snap = state.queue.lock().unwrap().snapshot();
+    let snap = state.queue.lock().unwrap_or_else(|e| e.into_inner()).snapshot();
     let _ = app.emit("queue-state", snap);
 }
 
 fn push_flags(app: &AppHandle) {
     let state = app.state::<AppState>();
     let (shuffle, repeat) = {
-        let q = state.queue.lock().unwrap();
+        let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         (q.shuffle, q.repeat.as_str().to_string())
     };
     {
-        let mut info = state.info.lock().unwrap();
+        let mut info = state.info.lock().unwrap_or_else(|e| e.into_inner());
         info.shuffle = shuffle;
         info.repeat = repeat.clone();
     }
@@ -131,7 +118,7 @@ fn push_flags(app: &AppHandle) {
 fn update_now_playing(app: &AppHandle, t: &Track) {
     let state = app.state::<AppState>();
     {
-        let mut info = state.info.lock().unwrap();
+        let mut info = state.info.lock().unwrap_or_else(|e| e.into_inner());
         info.title = t.title.clone();
         info.artist = t.artist.clone();
     }
@@ -142,7 +129,7 @@ fn update_now_playing(app: &AppHandle, t: &Track) {
 
 fn update_artwork(app: AppHandle, t: Track) {
     let opts: State<SharedOpts> = app.state();
-    let source_artwork = matches!(opts.lock().unwrap().source, theming::Source::Artwork);
+    let source_artwork = matches!(opts.lock().unwrap_or_else(|e| e.into_inner()).source, theming::Source::Artwork);
     if !source_artwork {
         return;
     }
@@ -170,7 +157,7 @@ fn update_artwork(app: AppHandle, t: Track) {
         };
         theming::set_artwork(path);
         let opts: State<SharedOpts> = app.state();
-        let snapshot = opts.lock().unwrap().clone();
+        let snapshot = opts.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(palette) = tauri::async_runtime::spawn_blocking(move || theming::current(&snapshot))
             .await
             .ok()
@@ -209,13 +196,8 @@ fn cache_track(http: reqwest::Client, cache: Cache, id: String, url: String) {
 async fn start_index(app: AppHandle, i: usize, push_history: bool) {
     let state = app.state::<AppState>();
     let gen = state.queue_gen.fetch_add(1, Ordering::SeqCst) + 1;
-    {
-        let mut f = state.fusion.lock().unwrap();
-        f.target = None;
-        f.pending = None;
-    }
     let t = {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         let t = q.tracks.get(i).cloned();
         if t.is_some() {
             if push_history && q.index >= 0 && q.index != i as isize {
@@ -233,7 +215,7 @@ async fn start_index(app: AppHandle, i: usize, push_history: bool) {
     };
     let Some(t) = t else { return; };
     emit_queue(&app);
-    let quality = state.quality.lock().unwrap().clone();
+    let quality = state.quality.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let resolved = resolve_url(&state, &t.id, &quality).await;
     if state.queue_gen.load(Ordering::SeqCst) != gen {
         return;
@@ -244,7 +226,8 @@ async fn start_index(app: AppHandle, i: usize, push_history: bool) {
             if state.queue_gen.load(Ordering::SeqCst) != gen {
                 return;
             }
-            let mut q = state.queue.lock().unwrap();
+            log::line(&format!("resolve failed for {}: {e}", t.id));
+            let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
             q.loading = false;
             drop(q);
             emit_queue(&app);
@@ -262,7 +245,7 @@ async fn start_index(app: AppHandle, i: usize, push_history: bool) {
         cache_track(state.yt.http.clone(), state.cache.clone(), t.id.clone(), url.clone());
     }
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         q.loading = false;
     }
     emit_queue(&app);
@@ -274,13 +257,8 @@ async fn start_index(app: AppHandle, i: usize, push_history: bool) {
 
 async fn adopt_index(app: AppHandle, i: usize, push_history: bool) {
     let state = app.state::<AppState>();
-    {
-        let mut f = state.fusion.lock().unwrap();
-        f.target = None;
-        f.pending = None;
-    }
     let t = {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         let t = q.tracks.get(i).cloned();
         if t.is_some() {
             if push_history && q.index >= 0 && q.index != i as isize {
@@ -307,7 +285,7 @@ async fn adopt_index(app: AppHandle, i: usize, push_history: bool) {
 async fn extend_radio(app: AppHandle) -> bool {
     let state = app.state::<AppState>();
     let (cur, id) = {
-        let q = state.queue.lock().unwrap();
+        let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         match q.current() {
             Some(t) => (q.index, t.id.clone()),
             None => return false,
@@ -316,11 +294,12 @@ async fn extend_radio(app: AppHandle) -> bool {
     let Ok(related) = state.yt.radio(&id).await else {
         return false;
     };
-    let mut q = state.queue.lock().unwrap();
+    let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
+    let room = MAX_AUTO_QUEUE.saturating_sub(q.tracks.len());
     let fresh: Vec<Track> = related
         .into_iter()
         .filter(|r| !q.tracks.iter().any(|t| t.id == r.id))
-        .take(25)
+        .take(25.min(room))
         .collect();
     let added = fresh.len();
     q.tracks.extend(fresh);
@@ -336,7 +315,7 @@ async fn extend_radio(app: AppHandle) -> bool {
 async fn advance(app: AppHandle, force: Option<usize>, manual: bool) {
     let state = app.state::<AppState>();
     let cur = {
-        let q = state.queue.lock().unwrap();
+        let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         if q.loading || q.tracks.is_empty() {
             return;
         }
@@ -346,7 +325,7 @@ async fn advance(app: AppHandle, force: Option<usize>, manual: bool) {
         Some(i) => Some(i),
         None => {
             let peek = {
-                let q = state.queue.lock().unwrap();
+                let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
                 if manual {
                     q.peek_manual_next(cur.max(0) as usize)
                 } else {
@@ -361,7 +340,7 @@ async fn advance(app: AppHandle, force: Option<usize>, manual: bool) {
         Some(i) => Some(i),
         None => {
             let (last, repeat, src) = {
-                let q = state.queue.lock().unwrap();
+                let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
                 (cur as usize >= q.tracks.len().saturating_sub(1), q.repeat, q.source.clone())
             };
             if last && repeat == Repeat::Off {
@@ -384,7 +363,7 @@ async fn advance(app: AppHandle, force: Option<usize>, manual: bool) {
     let Some(next) = next else {
         state.player.send(Cmd::Stop);
         {
-            let mut info = state.info.lock().unwrap();
+            let mut info = state.info.lock().unwrap_or_else(|e| e.into_inner());
             info.playing = false;
         }
         refresh_tray(&app);
@@ -395,17 +374,18 @@ async fn advance(app: AppHandle, force: Option<usize>, manual: bool) {
 
 async fn load_more_playlist(app: AppHandle) -> bool {
     let state = app.state::<AppState>();
-    let cont = state.queue.lock().unwrap().cont.clone();
+    let cont = state.queue.lock().unwrap_or_else(|e| e.into_inner()).cont.clone();
     let Some(token) = cont else { return false };
     let (fresh, next) = match state.yt.album_more(&token).await {
         Ok(r) => r,
         Err(_) => return false,
     };
-    let mut q = state.queue.lock().unwrap();
+    let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
+    let room = MAX_AUTO_QUEUE.saturating_sub(q.tracks.len());
     let added: Vec<Track> = fresh
         .into_iter()
         .filter(|r| !q.tracks.iter().any(|t| t.id == r.id))
-        .take(50)
+        .take(50.min(room))
         .collect();
     let added_n = added.len();
     q.tracks.extend(added);
@@ -418,7 +398,7 @@ async fn load_more_playlist(app: AppHandle) -> bool {
 async fn handle_ended(app: AppHandle, tag: u64, gapless: bool) {
     let state = app.state::<AppState>();
     let (cur, repeat, expected) = {
-        let q = state.queue.lock().unwrap();
+        let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         (q.index, q.repeat, q.expected_next)
     };
     if repeat == Repeat::One {
@@ -441,12 +421,8 @@ async fn handle_ended(app: AppHandle, tag: u64, gapless: bool) {
 async fn preload_next(app: AppHandle) {
     let state = app.state::<AppState>();
     let gen = state.preload_gen.fetch_add(1, Ordering::SeqCst) + 1;
-    if state.fusion.lock().unwrap().enabled {
-        fusion_preload(&app).await;
-        return;
-    }
     let next = {
-        let q = state.queue.lock().unwrap();
+        let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         let cur = q.index;
         if cur < 0 {
             state.player.send(Cmd::CancelPreload);
@@ -458,17 +434,17 @@ async fn preload_next(app: AppHandle) {
         })
     };
     let Some((cur, tag, idx)) = next else {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         q.expected_next = None;
         state.player.send(Cmd::CancelPreload);
         return;
     };
-    let id = state.queue.lock().unwrap().tracks.get(idx).map(|t| t.id.clone());
+    let id = state.queue.lock().unwrap_or_else(|e| e.into_inner()).tracks.get(idx).map(|t| t.id.clone());
     let Some(id) = id else { return };
-    let quality = state.quality.lock().unwrap().clone();
+    let quality = state.quality.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let Ok((url, _dur, ua)) = resolve_url(&state, &id, &quality).await else {
         if state.preload_gen.load(Ordering::SeqCst) == gen {
-            let mut q = state.queue.lock().unwrap();
+            let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
             q.expected_next = None;
             state.player.send(Cmd::CancelPreload);
         }
@@ -478,7 +454,7 @@ async fn preload_next(app: AppHandle) {
         return;
     }
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         if q.index != cur {
             return;
         }
@@ -487,212 +463,15 @@ async fn preload_next(app: AppHandle) {
     state.player.send(Cmd::Preload { url, ua, tag });
 }
 
-async fn fusion_preload(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    let gen = state.preload_gen.fetch_add(1, Ordering::SeqCst) + 1;
-    let (enabled, ready) = {
-        let f = state.fusion.lock().unwrap();
-        (f.enabled, f.target.is_some())
-    };
-    if !enabled || ready {
-        return;
-    }
-    let pick = || -> Option<(usize, usize)> {
-        let q = state.queue.lock().unwrap();
-        let cur = q.index;
-        if cur < 0 || q.tracks.len() < 2 || q.repeat == Repeat::One {
-            return None;
-        }
-        let cur = cur as usize;
-        q.peek_next(cur).filter(|i| *i != cur).map(|i| (cur, i))
-    };
-    let mut choice = pick();
-    if choice.is_none() {
-        let (repeat, src) = {
-            let q = state.queue.lock().unwrap();
-            (q.repeat, q.source.clone())
-        };
-        if repeat == Repeat::Off && state.fusion.lock().unwrap().enabled {
-            let grew = if src.is_some() {
-                let autoload = state
-                    .store
-                    .setting("autoload")
-                    .map(|v| v != "0")
-                    .unwrap_or(true);
-                autoload && load_more_playlist(app.clone()).await
-            } else {
-                extend_radio(app.clone()).await
-            };
-            if grew {
-                choice = pick();
-            }
-        }
-    }
-    let Some((cur, idx)) = choice else {
-        state.player.send(Cmd::CancelPreload);
-        return;
-    };
-    if !state.fusion.lock().unwrap().enabled {
-        state.player.send(Cmd::CancelPreload);
-        return;
-    }
-    let Some(id) = state.queue.lock().unwrap().tracks.get(idx).map(|t| t.id.clone()) else {
-        return;
-    };
-    let quality = state.quality.lock().unwrap().clone();
-    let Ok((url, _dur, ua)) = resolve_url(&state, &id, &quality).await else {
-        state.player.send(Cmd::CancelPreload);
-        return;
-    };
-    if state.preload_gen.load(Ordering::SeqCst) != gen {
-        return;
-    }
-    if state.bpms.lock().unwrap().get(&id).is_none() {
-        let fresh = state.bpms_pending.lock().unwrap().insert(id.clone());
-        if fresh {
-            if let Some(b) = analyze_target(url.clone(), ua.clone()).await {
-                state.bpms.lock().unwrap().insert(id.clone(), b);
-            }
-            state.bpms_pending.lock().unwrap().remove(&id);
-        }
-    }
-    let tag = state.tags.fetch_add(1, Ordering::SeqCst) + 1;
-    if state.preload_gen.load(Ordering::SeqCst) != gen {
-        return;
-    }
-    {
-        let mut f = state.fusion.lock().unwrap();
-        let mut q = state.queue.lock().unwrap();
-        if !f.enabled || q.index != cur as isize || q.loading {
-            return;
-        }
-        f.target = Some(MixTarget { idx, id });
-        q.expected_next = Some((tag, idx));
-    }
-    state.player.send(Cmd::PreloadAt { url, ua, tag, position: 0.0 });
-}
-
-async fn analyze_target(url: String, ua: String) -> Option<f64> {
-    tauri::async_runtime::spawn_blocking(move || crate::audio::analyze(&url, &ua).bpm)
-        .await
-        .ok()
-        .flatten()
-}
-
-fn fusion_lull(app: &AppHandle, _position: f64, fade: f64, urgent: bool) {
-    let state = app.state::<AppState>();
-    let target = {
-        let f = state.fusion.lock().unwrap();
-        if !f.enabled {
-            return;
-        }
-        match f.target.clone() {
-            Some(t) => t,
-            None => return,
-        }
-    };
-    let cur = {
-        let q = state.queue.lock().unwrap();
-        if q.loading || (q.index < 0) {
-            return;
-        }
-        q.index as usize
-    };
-    if target.idx == cur {
-        return;
-    }
-    let (ratio, matched) = {
-        let cur_id = state.queue.lock().unwrap().tracks.get(cur).map(|t| t.id.clone());
-        let bpms = state.bpms.lock().unwrap();
-        match cur_id.and_then(|id| bpms.get(&id).copied().map(|b| (id, b))) {
-            Some((_, a)) => match bpms.get(&target.id) {
-                Some(t) if *t > 0.0 => {
-                    let ratio = a / t;
-                    if (0.95..=1.05).contains(&ratio) {
-                        (ratio, true)
-                    } else {
-                        (1.0, false)
-                    }
-                }
-                _ => (1.0, false),
-            },
-            None => (1.0, false),
-        }
-    };
-    {
-        let mut f = state.fusion.lock().unwrap();
-        if !f.enabled {
-            return;
-        }
-        f.target = None;
-        f.pending = Some(target);
-    }
-    state.player.send(Cmd::MixTempo(ratio));
-    let fade = if matched { fade.max(8.0) + 2.0 } else { fade.max(6.0) };
-    state.player.send(Cmd::Mix { fade, urgent });
-}
-
-fn fusion_mixed(app: &AppHandle, _position: f64) {
-    let state = app.state::<AppState>();
-    let target = match state.fusion.lock().unwrap().pending.take() {
-        Some(t) => t,
-        None => return,
-    };
-    let (at, track) = {
-        let q = state.queue.lock().unwrap();
-        match q.tracks.iter().position(|t| t.id == target.id) {
-            Some(at) => (at, q.tracks[at].clone()),
-            None => return,
-        }
-    };
-    {
-        let mut q = state.queue.lock().unwrap();
-        q.index = at as isize;
-        q.loading = false;
-        q.expected_next = None;
-    }
-    emit_queue(app);
-    update_now_playing(app, &track);
-    state.store.history_push(&track);
-    update_artwork(app.clone(), track.clone());
-    let a = app.clone();
-    tauri::async_runtime::spawn(async move { preload_next(a).await });
-}
-
-#[tauri::command]
-fn set_fusion_ui(state: State<'_, AppState>, enabled: bool) {
-    state.store.set_setting("fusion_ui", if enabled { "1" } else { "0" });
-}
-
-#[tauri::command]
-async fn set_fusion(app: AppHandle, enabled: bool) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    state.store.set_setting("fusion", if enabled { "1" } else { "0" });
-    {
-        let mut f = state.fusion.lock().unwrap();
-        f.enabled = enabled;
-        f.target = None;
-        f.pending = None;
-    }
-    if enabled {
-        state.player.send(Cmd::MixClock);
-    } else {
-        state.player.send(Cmd::CancelMix);
-    }
-    state.player.send(Cmd::CancelPreload);
-    preload_next(app.clone()).await;
-    Ok(())
-}
-
 fn skip_prev(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let pos = *state.position.lock().unwrap();
+    let pos = *state.position.lock().unwrap_or_else(|e| e.into_inner());
     if pos > 4.0 {
         state.player.send(Cmd::Seek(0.0));
         return;
     }
     let target = {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         let cur = q.index;
         q.expected_next = None;
         let mut found = None;
@@ -715,18 +494,13 @@ fn skip_prev(app: &AppHandle) {
         })
     };
     if let Some(i) = target {
-        {
-            let mut f = state.fusion.lock().unwrap();
-            f.target = None;
-            f.pending = None;
-        }
         tauri::async_runtime::spawn(start_index(app.clone(), i as usize, false));
     }
 }
 
 fn toggle_play(app: &AppHandle) {
     let state = app.state::<AppState>();
-    if state.info.lock().unwrap().playing {
+    if state.info.lock().unwrap_or_else(|e| e.into_inner()).playing {
         state.player.send(Cmd::Pause);
     } else {
         state.player.send(Cmd::Resume);
@@ -736,17 +510,11 @@ fn toggle_play(app: &AppHandle) {
 fn toggle_shuffle(app: &AppHandle) {
     let state = app.state::<AppState>();
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         q.shuffle = !q.shuffle;
         q.expected_next = None;
         state.store.set_setting("shuffle", if q.shuffle { "1" } else { "0" });
     }
-    {
-        let mut f = state.fusion.lock().unwrap();
-        f.target = None;
-        f.pending = None;
-    }
-    state.player.send(Cmd::CancelMix);
     state.player.send(Cmd::CancelPreload);
     push_flags(app);
     emit_queue(&app);
@@ -756,7 +524,7 @@ fn toggle_shuffle(app: &AppHandle) {
 fn cycle_repeat(app: &AppHandle) {
     let state = app.state::<AppState>();
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         q.repeat = match q.repeat {
             Repeat::Off => Repeat::All,
             Repeat::All => Repeat::One,
@@ -765,24 +533,10 @@ fn cycle_repeat(app: &AppHandle) {
         q.expected_next = None;
         state.store.set_setting("repeat", q.repeat.as_str());
     }
-    {
-        let mut f = state.fusion.lock().unwrap();
-        f.target = None;
-        f.pending = None;
-    }
-    state.player.send(Cmd::CancelMix);
     state.player.send(Cmd::CancelPreload);
     push_flags(app);
     emit_queue(&app);
     tauri::async_runtime::spawn(preload_next(app.clone()));
-}
-
-fn reset_fusion(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    state.player.send(Cmd::CancelMix);
-    let mut f = state.fusion.lock().unwrap();
-    f.target = None;
-    f.pending = None;
 }
 
 fn reschedule_preload(app: &AppHandle) {
@@ -851,7 +605,7 @@ async fn artist(state: State<'_, AppState>, id: String) -> Result<innertube::Art
 
 #[tauri::command]
 fn get_queue(state: State<'_, AppState>) -> Snapshot {
-    state.queue.lock().unwrap().snapshot()
+    state.queue.lock().unwrap_or_else(|e| e.into_inner()).snapshot()
 }
 
 #[tauri::command]
@@ -867,7 +621,7 @@ async fn play_tracks(
         return Err("empty queue".into());
     }
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         q.tracks = tracks;
         q.index = -1;
         q.prev.clear();
@@ -875,7 +629,6 @@ async fn play_tracks(
         q.source = src;
         q.cont = cont;
     }
-    reset_fusion(&app);
     state.player.send(Cmd::CancelPreload);
     emit_queue(&app);
     start_index(app.clone(), index, false).await;
@@ -886,7 +639,7 @@ async fn play_tracks(
 async fn play_radio(app: AppHandle, track: Track) -> Result<(), String> {
     let state = app.state::<AppState>();
     {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         q.tracks = vec![track];
         q.index = -1;
         q.prev.clear();
@@ -894,7 +647,6 @@ async fn play_radio(app: AppHandle, track: Track) -> Result<(), String> {
         q.source = None;
         q.cont = None;
     }
-    reset_fusion(&app);
     state.player.send(Cmd::CancelPreload);
     emit_queue(&app);
     start_index(app.clone(), 0, false).await;
@@ -959,8 +711,13 @@ fn cycle_repeat_cmd(app: AppHandle) {
 }
 
 #[tauri::command]
+fn set_window_visible(state: State<'_, AppState>, visible: bool) {
+    state.player.send(Cmd::Visible(visible));
+}
+
+#[tauri::command]
 fn set_quality(state: State<'_, AppState>, quality: String) {
-    *state.quality.lock().unwrap() = quality.clone();
+    *state.quality.lock().unwrap_or_else(|e| e.into_inner()) = quality.clone();
     state.store.set_setting("quality", &quality);
 }
 
@@ -969,7 +726,7 @@ fn get_settings(state: State<'_, AppState>) -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
     for key in [
         "volume", "speed", "pitch", "eq", "quality", "crossfade", "shuffle", "repeat", "autocache", "autoload",
-        "lyr_lrclib", "lyr_netease", "lyrics_offset", "panel_close", "fusion", "fusion_ui",
+        "lyr_lrclib", "lyr_netease", "lyrics_offset", "panel_close",
     ] {
         m.insert(key.to_string(), state.store.setting(key).unwrap_or_default());
     }
@@ -1036,7 +793,7 @@ fn cache_clear(state: State<'_, AppState>) -> u64 {
 async fn add_to_queue(app: AppHandle, track: Track, next: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
     let empty = {
-        let mut q = state.queue.lock().unwrap();
+        let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
         if q.index < 0 || q.tracks.is_empty() {
             q.tracks = vec![track];
             q.index = 0;
@@ -1049,7 +806,6 @@ async fn add_to_queue(app: AppHandle, track: Track, next: bool) -> Result<(), St
             false
         }
     };
-    reset_fusion(&app);
     state.player.send(Cmd::CancelPreload);
     emit_queue(&app);
     if empty {
@@ -1063,7 +819,7 @@ async fn add_to_queue(app: AppHandle, track: Track, next: bool) -> Result<(), St
 #[tauri::command]
 fn remove_from_queue(app: AppHandle, index: usize) {
     let state = app.state::<AppState>();
-    let mut q = state.queue.lock().unwrap();
+    let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
     if index >= q.tracks.len() || index as isize == q.index {
         return;
     }
@@ -1079,7 +835,6 @@ fn remove_from_queue(app: AppHandle, index: usize) {
         .collect();
     q.expected_next = None;
     drop(q);
-    reset_fusion(&app);
     state.player.send(Cmd::CancelPreload);
     emit_queue(&app);
     reschedule_preload(&app);
@@ -1088,7 +843,7 @@ fn remove_from_queue(app: AppHandle, index: usize) {
 #[tauri::command]
 fn move_in_queue(app: AppHandle, from: usize, to: usize) {
     let state = app.state::<AppState>();
-    let mut q = state.queue.lock().unwrap();
+    let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
     if from >= q.tracks.len() || to >= q.tracks.len() || from as isize == q.index || to as isize == q.index {
         return;
     }
@@ -1109,7 +864,6 @@ fn move_in_queue(app: AppHandle, from: usize, to: usize) {
     q.prev = q.prev.iter().map(|p| shift(*p)).collect();
     q.expected_next = None;
     drop(q);
-    reset_fusion(&app);
     state.player.send(Cmd::CancelPreload);
     emit_queue(&app);
     reschedule_preload(&app);
@@ -1118,14 +872,13 @@ fn move_in_queue(app: AppHandle, from: usize, to: usize) {
 #[tauri::command]
 fn clear_upcoming(app: AppHandle) {
     let state = app.state::<AppState>();
-    let mut q = state.queue.lock().unwrap();
+    let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
     if q.index >= 0 {
         let keep = q.index as usize + 1;
         q.tracks.truncate(keep);
     }
     q.expected_next = None;
     drop(q);
-    reset_fusion(&app);
     state.player.send(Cmd::CancelPreload);
     emit_queue(&app);
 }
@@ -1244,8 +997,8 @@ fn set_panel_close(state: State<'_, AppState>, enabled: bool) {
 
 #[tauri::command]
 async fn set_theme(opts: State<'_, SharedOpts>, theme: ThemeOpts) -> Result<BTreeMap<String, String>, String> {
-    *opts.lock().unwrap() = theme;
-    let snapshot = opts.lock().unwrap().clone();
+    *opts.lock().unwrap_or_else(|e| e.into_inner()) = theme;
+    let snapshot = opts.lock().unwrap_or_else(|e| e.into_inner()).clone();
     tauri::async_runtime::spawn_blocking(move || theming::current(&snapshot))
         .await
         .map_err(|e| e.to_string())?
@@ -1302,6 +1055,7 @@ fn read_settings(store: &Store) -> Initial {
 }
 
 fn main() {
+    log::init();
     let store = std::sync::Arc::new(Store::new());
     store.clone().spawn_saver();
     let opts: SharedOpts = std::sync::Arc::new(std::sync::Mutex::new(ThemeOpts::default()));
@@ -1324,16 +1078,17 @@ fn main() {
             let player = Player::new(handle.clone(), initial);
             let cb_app = handle.clone();
             {
-                let mut cb = player.cb.lock().unwrap();
+                let mut cb = player.cb.lock().unwrap_or_else(|e| e.into_inner());
                 *cb = Some(Box::new(move |e: Event| match e {
                     Event::Ended { tag, gapless } => {
                         let a = cb_app.clone();
                         tauri::async_runtime::spawn(async move { handle_ended(a, tag, gapless).await });
                     }
                     Event::Failed(msg) => {
+                        log::line(&format!("playback failed: {msg}"));
                         let _ = cb_app.emit("playback-failed", msg);
                         if let Some(state) = cb_app.try_state::<AppState>() {
-                            let mut info = state.info.lock().unwrap();
+                            let mut info = state.info.lock().unwrap_or_else(|e| e.into_inner());
                             if info.playing {
                                 info.playing = false;
                                 drop(info);
@@ -1342,41 +1097,10 @@ fn main() {
                             }
                         }
                     }
-                    Event::Lull { position, fade, urgent } => {
-                        fusion_lull(&cb_app, position, fade, urgent);
-                    }
-                    Event::Bpm(bpm) => {
-                        if let Some(state) = cb_app.try_state::<AppState>() {
-                            let id = {
-                                let q = state.queue.lock().unwrap();
-                                q.tracks.get(q.index.max(0) as usize).map(|t| t.id.clone())
-                            };
-                            if let Some(id) = id {
-                                let mut map = state.bpms.lock().unwrap();
-                                let keep = map
-                                    .get(&id)
-                                    .is_some_and(|old| (*old - bpm).abs() > old * 0.08);
-                                if !keep {
-                                    map.insert(id, bpm);
-                                }
-                            }
-                        }
-                    }
-                    Event::Mixed { position } => {
-                        fusion_mixed(&cb_app, position);
-                    }
-                    Event::MixFailed => {
-                        if let Some(state) = cb_app.try_state::<AppState>() {
-                            let mut f = state.fusion.lock().unwrap();
-                            f.pending = None;
-                            f.target = None;
-                        }
-                        reschedule_preload(&cb_app);
-                    }
                     Event::Status { playing, position } => {
                         if let Some(state) = cb_app.try_state::<AppState>() {
-                            *state.position.lock().unwrap() = position;
-                            let mut info = state.info.lock().unwrap();
+                            *state.position.lock().unwrap_or_else(|e| e.into_inner()) = position;
+                            let mut info = state.info.lock().unwrap_or_else(|e| e.into_inner());
                             if info.playing != playing {
                                 info.playing = playing;
                                 drop(info);
@@ -1416,13 +1140,6 @@ fn main() {
                 tray: Mutex::new(None),
                 queue: Mutex::new(QueueState { shuffle, repeat, ..QueueState::default() }),
                 position: Mutex::new(0.0),
-                fusion: Mutex::new(Fusion {
-                    enabled: store.setting("fusion").as_deref() == Some("1")
-                        && store.setting("fusion_ui").as_deref() == Some("1"),
-                    ..Fusion::default()
-                }),
-                bpms: Mutex::new(HashMap::new()),
-                bpms_pending: Mutex::new(HashSet::new()),
                 quality: Mutex::new(store.setting("quality").unwrap_or_else(|| "max".into())),
                 tags: AtomicU64::new(1),
                 preload_gen: AtomicU64::new(0),
@@ -1432,7 +1149,7 @@ fn main() {
             #[cfg(target_os = "linux")]
             mpris::start(handle.clone());
 
-            let info = app.state::<AppState>().info.lock().unwrap().clone();
+            let info = app.state::<AppState>().info.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let menu = tray_menu(&handle, &info)?;
             let tray = TrayIconBuilder::new()
                 .icon(icon)
@@ -1454,13 +1171,16 @@ fn main() {
                 })
                 .build(app)?;
             if let Some(state) = app.try_state::<AppState>() {
-                *state.tray.lock().unwrap() = Some(tray);
+                *state.tray.lock().unwrap_or_else(|e| e.into_inner()) = Some(tray);
             }
             Ok(())
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    state.store.save();
+                }
                 let _ = window.hide();
             }
         })
@@ -1468,19 +1188,19 @@ fn main() {
             search, home, playlists_for_you, album, album_more, artist, get_queue, play_tracks, play_radio, play_at,
             skip_next, skip_prev_cmd,
             toggle_play_cmd, pause, resume, seek, volume, toggle_shuffle_cmd, cycle_repeat_cmd,
-            set_quality, get_settings, set_speed, set_pitch, set_eq, set_crossfade, set_autocache, set_autoload,
+            set_window_visible, set_quality, get_settings, set_speed, set_pitch, set_eq, set_crossfade, set_autocache, set_autoload,
             cache_info, cache_clear, add_to_queue, remove_from_queue, move_in_queue, clear_upcoming,
             likes_list, like_toggle, likes_clear, history_list, history_remove, history_clear,
             store_import, playlists_list, playlist_create, playlist_rename, playlist_delete,
             playlist_tracks, playlist_add, playlist_remove, lyrics, lyrics_get_custom, lyrics_save_custom,
-            lyrics_delete_custom, lyrics_set_provider, lyrics_set_offset, set_panel_close, set_fusion, set_fusion_ui, set_theme,
+            lyrics_delete_custom, lyrics_set_provider, lyrics_set_offset, set_panel_close, set_theme,
             system_scale, toggle_fullscreen
         ])
         .build(tauri::generate_context!())
         .expect("failed to build melissm")
         .run(|app, event| {
             use tauri::RunEvent;
-            if let RunEvent::Exit = event {
+            if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
                 if let Some(state) = app.try_state::<AppState>() {
                     state.store.save();
                 }

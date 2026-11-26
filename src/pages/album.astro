@@ -12,7 +12,7 @@ import Layout from '../layouts/Layout.astro';
 <script>
   import { album, albumMore } from '../lib/api';
   import { playQueue } from '../lib/player';
-  import { esc, renderTracks } from '../lib/ui';
+  import { artUrl, esc, renderTracks } from '../lib/ui';
   import { onPage } from '../lib/page';
 
   let seq = 0;
@@ -40,7 +40,7 @@ import Layout from '../layouts/Layout.astro';
       if (run !== seq || !head.isConnected) return;
       document.title = `${page.title} · Melissm`;
       head.innerHTML = `
-        ${page.thumbnail ? `<img src="${esc(page.thumbnail)}" alt="" class="size-52 shrink-0 rounded-[32px] object-cover shadow-lg shadow-black/30" />` : '<div class="size-52 shrink-0 rounded-[32px] bg-surface-container-highest grid place-items-center"><span class="ms text-on-surface-variant opacity-60" style="font-size:64px">album</span></div>'}
+        ${page.thumbnail ? `<img src="${esc(artUrl(page.thumbnail, 208))}" alt="" data-art="${esc(page.thumbnail)}" data-artcss="208" class="size-52 shrink-0 rounded-[32px] object-cover shadow-lg shadow-black/30" />` : '<div class="size-52 shrink-0 rounded-[32px] bg-surface-container-highest grid place-items-center"><span class="ms text-on-surface-variant opacity-60" style="font-size:64px">album</span></div>'}
         <div class="min-w-0 flex-1">
           <h1 class="truncate text-5xl font-semibold tracking-tight">${esc(page.title)}</h1>
           <p class="mt-2 truncate text-on-surface-variant">${esc(page.subtitle)}</p>

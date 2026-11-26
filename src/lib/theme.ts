@@ -80,6 +80,24 @@ const setVars = (colors: Record<string, string>) => {
 
 let liveColors: Record<string, string> = {};
 let animId = 0;
+let paletteSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingPalette: Record<string, string> | null = null;
+
+const savePalette = (colors: Record<string, string>) => {
+  pendingPalette = colors;
+  clearTimeout(paletteSaveTimer);
+  paletteSaveTimer = setTimeout(() => {
+    if (!pendingPalette) return;
+    localStorage.setItem(PALETTE_KEY, JSON.stringify(pendingPalette));
+    pendingPalette = null;
+  }, 250);
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    if (pendingPalette) localStorage.setItem(PALETTE_KEY, JSON.stringify(pendingPalette));
+  });
+}
 
 export function apply(colors: Record<string, string>, mode: ThemeMode, animate = false) {
   const target = mode === 'auto' ? 'dark' : mode;
@@ -90,7 +108,7 @@ export function apply(colors: Record<string, string>, mode: ThemeMode, animate =
   if (!animOn || !hasLive) {
     setVars(colors);
     liveColors = { ...colors };
-    localStorage.setItem(PALETTE_KEY, JSON.stringify(colors));
+    savePalette(colors);
     return;
   }
   const from = { ...liveColors };
@@ -109,7 +127,7 @@ export function apply(colors: Record<string, string>, mode: ThemeMode, animate =
     if (k < 1) {
       animId = requestAnimationFrame(step);
     } else {
-      localStorage.setItem(PALETTE_KEY, JSON.stringify(colors));
+      savePalette(colors);
     }
   };
   animId = requestAnimationFrame(step);
@@ -180,7 +198,7 @@ export async function initTheme() {
       const o = loadOpts();
       applyEffects(o);
       if (Object.keys(liveColors).length) apply(liveColors, o.mode, false);
-      void pushTheme(o, true);
+      void pushTheme(o);
     });
   }
   await pushTheme(opts);

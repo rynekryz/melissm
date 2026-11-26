@@ -32,25 +32,35 @@ const path = Astro.url.pathname;
       void initLibrary().catch(() => {});
       initSliders();
       initSwipe();
-      document.addEventListener('astro:page-load', () => initSliders());
-      const root = document.documentElement;
-      root.dataset.input = 'mouse';
-      window.addEventListener('pointerdown', () => (root.dataset.input = 'mouse'), true);
-      window.addEventListener('keydown', () => (root.dataset.input = 'key'), true);
-      window.addEventListener('contextmenu', (e) => {
-        if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable]')) e.preventDefault();
-      });
-      document.addEventListener('gesturestart', (e) => e.preventDefault());
-      window.addEventListener('wheel', (e) => {
-        if (e.ctrlKey) e.preventDefault();
-      }, { passive: false });
-      window.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && ['+', '-', '=', '0'].includes(e.key)) e.preventDefault();
-        if (e.key === 'F11') {
-          e.preventDefault();
-          if (isTauri) void invoke('toggle_fullscreen').catch(() => {});
-        }
-      });
+      const w = window as unknown as { __melissmLayout?: boolean };
+      if (!w.__melissmLayout) {
+        w.__melissmLayout = true;
+        document.addEventListener('astro:page-load', () => initSliders());
+        const root = document.documentElement;
+        root.dataset.input = 'mouse';
+        const syncVisibility = () => {
+          root.classList.toggle('window-hidden', document.hidden);
+          if (isTauri) void invoke('set_window_visible', { visible: !document.hidden }).catch(() => {});
+        };
+        syncVisibility();
+        document.addEventListener('visibilitychange', syncVisibility);
+        window.addEventListener('pointerdown', () => (root.dataset.input = 'mouse'), true);
+        window.addEventListener('keydown', () => (root.dataset.input = 'key'), true);
+        window.addEventListener('contextmenu', (e) => {
+          if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable]')) e.preventDefault();
+        });
+        document.addEventListener('gesturestart', (e) => e.preventDefault());
+        window.addEventListener('wheel', (e) => {
+          if (e.ctrlKey) e.preventDefault();
+        }, { passive: false });
+        window.addEventListener('keydown', (e) => {
+          if (e.ctrlKey && ['+', '-', '=', '0'].includes(e.key)) e.preventDefault();
+          if (e.key === 'F11') {
+            e.preventDefault();
+            if (isTauri) void invoke('toggle_fullscreen').catch(() => {});
+          }
+        });
+      }
     </script>
   </body>
 </html>

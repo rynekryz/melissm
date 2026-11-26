@@ -22,7 +22,7 @@
 
 <div id="lyr-full" aria-hidden="true">
   <div id="lyr-frost" class="absolute inset-0"></div>
-  <img id="lf-bg" alt="" class="absolute inset-0 size-full scale-125 object-cover" style="opacity:0" />
+  <img id="lf-bg" alt="" decoding="async" class="absolute inset-0 size-full scale-125 object-cover" style="opacity:0" />
   <div class="scrim"></div>
   <button id="lf-close" class="press absolute left-8 top-12 z-20 grid size-14 place-items-center rounded-full bg-surface-container/90 text-on-surface shadow-lg shadow-black/30 hover:bg-surface-container-highest" aria-label="Close fullscreen lyrics"><span class="ms">expand_more</span></button>
   <button id="lf-edit" class="press absolute right-8 top-12 z-20 grid size-14 place-items-center rounded-full bg-surface-container/90 text-on-surface shadow-lg shadow-black/30 hover:bg-surface-container-highest" aria-label="Edit lyrics"><span class="ms">edit</span></button>
@@ -37,7 +37,7 @@
 <div id="player" class="glass idle fixed inset-x-3 bottom-3 z-30 flex h-[84px] items-center gap-6 rounded-[32px] px-5 shadow-xl shadow-black/40 transition-colors duration-700">
   <div class="flex w-[28%] min-w-0 items-center gap-4">
     <div id="p-artbox" class="relative size-14 shrink-0 overflow-hidden rounded-2xl bg-surface-container-highest transition-[border-radius] duration-500 [transition-timing-function:var(--spring)]">
-      <img id="p-art" alt="" class="absolute inset-0 size-full object-cover" />
+      <img id="p-art" alt="" decoding="async" class="absolute inset-0 size-full object-cover" />
       <span id="p-art-fallback" class="absolute inset-0 grid place-items-center"><span class="ms text-on-surface-variant opacity-70">music_note</span></span>
     </div>
     <div class="min-w-0">
@@ -56,7 +56,9 @@
     <span id="p-pos" class="w-10 text-right text-xs tabular-nums text-on-surface-variant">0:00</span>
     <div id="p-seek" class="relative h-4 flex-1 cursor-pointer">
       <div id="p-seek-track" class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full"></div>
-      <div id="p-wave" class="wave absolute left-0 top-0 h-4" style="width:0%"></div>
+      <div id="p-wave" class="absolute left-0 top-0 h-4 w-full overflow-hidden">
+        <div class="wave h-full"></div>
+      </div>
     </div>
     <span id="p-dur" class="w-10 text-xs tabular-nums text-on-surface-variant">0:00</span>
   </div>
@@ -64,7 +66,6 @@
   <div class="flex w-[20%] items-center justify-end gap-2">
     <button id="p-queue" class="press icon-toggle grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue" aria-expanded="false"><span class="ms">queue_music</span></button>
     <button id="p-lyrics" class="press icon-toggle grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics" aria-expanded="false"><span class="ms">lyrics</span></button>
-    <button id="p-fusion" class="press icon-toggle hidden grid size-12 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion (experimental)" aria-pressed="false"><span class="ms">transition_fade</span></button>
     <span id="p-vol-icon" class="ms text-on-surface-variant">volume_up</span>
     <div class="xslider w-28 shrink-0">
       <input id="p-vol" type="range" min="0" max="100" aria-label="Volume" />
@@ -78,14 +79,14 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><clipPath id="fp-shape" clipPathUnits="objectBoundingBox"><path id="fp-shape-path" /></clipPath></defs></svg>
 
 <div id="p-full" aria-hidden="true">
-  <img id="fp-bg" alt="" class="absolute inset-0 size-full scale-125 object-cover blur-[64px]" style="opacity:0" />
+  <img id="fp-bg" alt="" decoding="async" class="absolute inset-0 size-full scale-125 object-cover blur-[64px]" style="opacity:0" />
   <div class="absolute inset-0 scrim"></div>
   <button id="fp-close" class="press absolute left-8 top-8 z-20 grid size-14 place-items-center rounded-full bg-surface-container/90 text-on-surface shadow-lg shadow-black/30 hover:bg-surface-container-highest" aria-label="Close player"><span class="ms">expand_more</span></button>
   <div class="fp-pop relative z-10 mx-auto grid h-full w-full max-w-[1400px] grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] items-center gap-16 px-24 py-10">
     <div class="relative mx-auto aspect-square w-full max-w-[min(40vw,68vh)]">
       <div id="fp-art-base" class="absolute inset-0 grid place-items-center bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60" style="font-size:64px">music_note</span></div>
-      <img id="fp-art-a" alt="" class="fp-art absolute inset-0 size-full object-cover" />
-      <img id="fp-art-b" alt="" class="fp-art absolute inset-0 size-full object-cover" />
+      <img id="fp-art-a" alt="" decoding="async" class="fp-art absolute inset-0 size-full object-cover" />
+      <img id="fp-art-b" alt="" decoding="async" class="fp-art absolute inset-0 size-full object-cover" />
     </div>
     <div class="flex min-w-0 flex-col justify-center">
       <h1 id="fp-title" class="line-clamp-3 text-6xl font-semibold tracking-tight">Nothing playing</h1>
@@ -109,7 +110,6 @@
         <button id="fp-repeat" class="press grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Repeat"><span id="fp-repeat-icon" class="ms text-[26px]">repeat</span></button>
         <button id="fp-queue" class="press icon-toggle grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Queue" aria-expanded="false"><span class="ms text-[26px]">queue_music</span></button>
         <button id="fp-lyrics" class="press icon-toggle grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Lyrics" aria-expanded="false"><span class="ms text-[26px]">lyrics</span></button>
-        <button id="fp-fusion" class="press icon-toggle hidden grid size-14 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Fussion" title="Fussion (experimental)" aria-pressed="false"><span class="ms text-[26px]">transition_fade</span></button>
       </div>
       <div class="mt-8 flex w-72 items-center gap-3">
         <span id="fp-vol-icon" class="ms text-on-surface-variant">volume_up</span>
@@ -134,12 +134,38 @@
 <script>
   import { current, cycleRepeat, next, onError, previous, playAt, removeFromQueue, moveInQueue, clearUpcoming, seek, setVolume, subscribe, toggle, toggleShuffle, type PlayerState } from '../lib/player';
   import { isLiked, refreshHistory, toggleLike } from '../lib/library';
-  import { getSettings, isTauri, lyrics, lyricsDeleteCustom, lyricsGetCustom, lyricsSaveCustom, setFusion } from '../lib/api';
-  import { esc, fmt } from '../lib/ui';
+  import { getSettings, isTauri, lyrics, lyricsDeleteCustom, lyricsGetCustom, lyricsSaveCustom } from '../lib/api';
+  import { artUrl, esc, fmt } from '../lib/ui';
   import { navigate } from 'astro:transitions/client';
 
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   const bar = $('player');
+  const waveArt = $('p-wave').firstElementChild as HTMLElement;
+  let waveTimer = 0;
+  let waveStep = 0;
+  const syncWave = () => {
+    const on = !bar.classList.contains('idle') && !document.hidden && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!on) {
+      if (waveTimer) {
+        clearInterval(waveTimer);
+        waveTimer = 0;
+        waveArt.style.willChange = 'auto';
+      }
+      return;
+    }
+    if (waveTimer) return;
+    waveArt.style.willChange = 'transform';
+    waveTimer = window.setInterval(() => {
+      if (!waveArt.isConnected) {
+        clearInterval(waveTimer);
+        waveTimer = 0;
+        return;
+      }
+      waveStep = (waveStep + 1) % 20;
+      waveArt.style.transform = `translateX(${-waveStep}px)`;
+    }, 80);
+  };
+  document.addEventListener('visibilitychange', syncWave);
   const panel = $('lyrics-panel');
   const qPanel = $('queue-panel');
   const qList = $('queue-list');
@@ -165,42 +191,16 @@
   let isCustom = false;
   let fsOpen = false;
   let panelClose = true;
-  let fusionOn = false;
-  let fusionUi = false;
   let lastSynced = '';
   const lycOffset = () => parseFloat(localStorage.getItem('melissm.lyrics_offset') ?? '0') || 0;
   const failedLyricsForCurrent = () => !!current() && current()!.id === lyricsFailId;
-  const paintFusion = () => {
-    for (const id of ['p-fusion', 'fp-fusion']) {
-      const el = $(id);
-      el.classList.toggle('hidden', !fusionUi);
-      el.classList.toggle('is-on', fusionOn && fusionUi);
-      el.setAttribute('aria-pressed', String(fusionOn && fusionUi));
-    }
-  };
-  const toggleFusion = () => {
-    fusionOn = !fusionOn;
-    paintFusion();
-    if (isTauri) void setFusion(fusionOn).catch(() => {});
-  };
-  $('p-fusion').onclick = toggleFusion;
-  $('fp-fusion').onclick = toggleFusion;
-  paintFusion();
   if (isTauri)
     void getSettings()
       .then((s) => {
         panelClose = s.panel_close !== '0';
-        fusionUi = s.fusion_ui === '1';
-        fusionOn = fusionUi && s.fusion === '1';
-        paintFusion();
       })
       .catch(() => {});
   window.addEventListener('melissm:panel-close', (e) => (panelClose = (e as CustomEvent<boolean>).detail));
-  window.addEventListener('melissm:fusion-ui', (e) => {
-    fusionUi = (e as CustomEvent<boolean>).detail;
-    if (!fusionUi) fusionOn = false;
-    paintFusion();
-  });
 
   const polar = (fn: (a: number) => number, steps = 220) => {
     let d = '';
@@ -237,6 +237,11 @@
   let front = 'a';
   let songCount = 0;
   let lastTrackId = '';
+  let lastLikeKey = '';
+  let lastUiKey = '';
+  let lastPos = -1;
+  let lastDur = -1;
+  let lastVol = -1;
   let curArtistId: string | null = null;
   const openArtist = () => {
     if (curArtistId) navigate(`/artist?id=${curArtistId}`);
@@ -255,18 +260,20 @@
   fpVolInput.value = vol.value;
 
   let qSig = '';
+  let qIndex = -2;
   let prevQueueIds = new Set<string>();
   const renderQueue = (s: PlayerState) => {
     const sig = s.tracks.map((t) => t.id).join('|');
     if (sig !== qSig) {
       qSig = sig;
+      qIndex = -2;
       let born = 0;
       qList.innerHTML = s.tracks
         .map((t, i) => {
           const fresh = prevQueueIds.size > 0 && !prevQueueIds.has(t.id);
           const delay = fresh ? ` style="animation-delay:${born++ * 35}ms"` : '';
           return `<div class="qrow${fresh ? ' qrow-in' : ''}" draggable="true" data-i="${i}" data-id="${t.id}"${delay}>
-            ${t.thumbnail ? `<img src="${esc(t.thumbnail)}" alt="" loading="lazy" class="size-10 shrink-0 rounded-xl object-cover" />` : '<div class="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60">music_note</span></div>'}
+            ${t.thumbnail ? `<img src="${esc(artUrl(t.thumbnail, 40))}" alt="" loading="lazy" decoding="async" data-art="${esc(t.thumbnail)}" data-artcss="40" class="size-10 shrink-0 rounded-xl object-cover" />` : '<div class="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60">music_note</span></div>'}
             <div class="min-w-0 flex-1"><div class="truncate text-sm font-medium">${esc(t.title)}</div><div class="truncate text-xs opacity-70">${esc(t.artist)}</div></div>
             <button data-qrm class="press grid size-8 shrink-0 place-items-center rounded-full hover:bg-surface-container-highest" aria-label="Remove"><span class="ms text-on-surface-variant">close</span></button>
           </div>`;
@@ -274,6 +281,8 @@
         .join('');
       prevQueueIds = new Set(s.tracks.map((t) => t.id));
     }
+    if (qIndex === s.index) return;
+    qIndex = s.index;
     qList.querySelectorAll<HTMLElement>('.qrow').forEach((row) => {
       row.classList.toggle('on', +row.dataset.i! === s.index);
       row.classList.toggle('past', +row.dataset.i! < s.index);
@@ -385,10 +394,10 @@
         return;
       }
       el.innerHTML = lines
-        .map((x) =>
+        .map((x, i) =>
           x.words
-            ? `<p class="lyric" data-l="${lines.indexOf(x)}">${x.words.map((w) => `<span class="kw" data-s="${w.s}">${esc(w.w)}</span>`).join('')}</p>`
-            : `<p class="lyric" data-l="${lines.indexOf(x)}">${esc(x.text) || '♪'}</p>`,
+            ? `<p class="lyric" data-l="${i}">${x.words.map((w) => `<span class="kw" data-s="${w.s}">${esc(w.w)}</span>`).join('')}</p>`
+            : `<p class="lyric" data-l="${i}">${esc(x.text) || '♪'}</p>`,
         )
         .join('');
     };
@@ -455,13 +464,27 @@
     if (panel.classList.contains('open')) setPanel(false);
   });
 
+  let fpKey = '';
   const syncFpControls = (playing: boolean, shuffle: boolean, repeat: string) => {
+    const key = `${playing}|${shuffle}|${repeat}`;
+    if (key === fpKey) return;
+    fpKey = key;
     $('fp-icon').textContent = playing ? 'pause' : 'play_arrow';
     $('fp-play').dataset.playing = String(playing);
     $('fp-shuffle').firstElementChild!.className = `ms text-[26px] ${shuffle ? 'fill text-primary' : ''}`;
     $('fp-repeat-icon').className = `ms text-[26px] ${repeat !== 'off' ? 'fill text-primary' : ''}`;
     $('fp-repeat-icon').textContent = repeat === 'one' ? 'repeat_one' : 'repeat';
   };
+
+  window.addEventListener('melissm:art-quality', () => {
+    const t = current();
+    if (!t?.thumbnail) return;
+    art.src = artUrl(t.thumbnail, 56);
+    for (const id of ['fp-bg', 'lf-bg', 'fp-art-a', 'fp-art-b']) {
+      const img = $<HTMLImageElement>(id);
+      img.src = artUrl(t.thumbnail, 600);
+    }
+  });
 
   const setArt = (src: string) => {
     const a = $<HTMLImageElement>('fp-art-a');
@@ -632,21 +655,24 @@
     const t = s.tracks[s.index];
     const has = !!t;
     if (has) {
-      if (t.thumbnail) {
-        if (art.getAttribute('src') !== t.thumbnail) art.src = t.thumbnail;
-        art.style.display = '';
-        artFallback.style.display = 'none';
-      } else {
-        art.style.display = 'none';
-        artFallback.style.display = '';
-      }
-      $('p-title').textContent = t.title;
-      $('p-artist').textContent = t.artist || t.album || 'Unknown artist';
-      curArtistId = t.artist_id ?? null;
-      $('p-like-icon').className = `ms ${isLiked(t.id) ? 'fill text-primary' : ''}`;
-      $('fp-like-icon').className = `ms text-[26px] ${isLiked(t.id) ? 'fill text-primary' : ''}`;
       if (t.id !== lastTrackId) {
         lastTrackId = t.id;
+        lastPos = -1;
+        lastDur = -1;
+        curArtistId = t.artist_id ?? null;
+        if (t.thumbnail) {
+          const small = artUrl(t.thumbnail, 56);
+          if (art.getAttribute('src') !== small) art.src = small;
+          art.dataset.art = t.thumbnail;
+          art.dataset.artcss = '56';
+          art.style.display = '';
+          artFallback.style.display = 'none';
+        } else {
+          art.style.display = 'none';
+          artFallback.style.display = '';
+        }
+        $('p-title').textContent = t.title;
+        $('p-artist').textContent = t.artist || t.album || 'Unknown artist';
         refreshHistory();
         $('fp-title').textContent = t.title;
         $('fp-artist').textContent = t.artist || t.album || 'Unknown artist';
@@ -654,13 +680,30 @@
         $('fpl-title').textContent = t.title;
         const bg = $<HTMLImageElement>('fp-bg');
         const lbg = $<HTMLImageElement>('lf-bg');
-        if (bg.getAttribute('src') !== (t.thumbnail || '')) bg.src = t.thumbnail || '';
-        if (lbg.getAttribute('src') !== (t.thumbnail || '')) lbg.src = t.thumbnail || '';
+        const big = artUrl(t.thumbnail, 600);
+        if (bg.getAttribute('src') !== big) bg.src = big;
+        if (lbg.getAttribute('src') !== big) lbg.src = big;
+        for (const id of ['fp-bg', 'lf-bg', 'fp-art-a', 'fp-art-b']) {
+          const img = $<HTMLImageElement>(id);
+          img.dataset.art = t.thumbnail;
+          img.dataset.artcss = '600';
+        }
         lbg.style.opacity = t.thumbnail ? '1' : '0';
         bg.style.opacity = t.thumbnail ? '1' : '0';
-        setArt(t.thumbnail);
+        setArt(big);
+      }
+      const liked = isLiked(t.id);
+      const likeKey = `${t.id}:${liked}`;
+      if (likeKey !== lastLikeKey) {
+        lastLikeKey = likeKey;
+        $('p-like-icon').className = `ms ${liked ? 'fill text-primary' : ''}`;
+        $('fp-like-icon').className = `ms text-[26px] ${liked ? 'fill text-primary' : ''}`;
       }
     } else {
+      lastTrackId = '';
+      lastLikeKey = '';
+      lastPos = -1;
+      lastDur = -1;
       art.removeAttribute('src');
       art.style.display = 'none';
       artFallback.style.display = '';
@@ -668,39 +711,56 @@
       $('p-artist').textContent = 'Pick a song you like';
       $('p-like-icon').className = 'ms';
     }
-    $('p-icon').textContent = s.loading ? 'hourglass_empty' : s.playing ? 'pause' : 'play_arrow';
-    $('p-play').dataset.playing = String(s.playing);
-    $('p-shuffle').firstElementChild!.className = `ms ${s.shuffle ? 'fill text-primary' : ''}`;
-    $('p-repeat').firstElementChild!.className = `ms ${s.repeat !== 'off' ? 'fill text-primary' : ''}`;
-    $('p-repeat').firstElementChild!.textContent = s.repeat === 'one' ? 'repeat_one' : 'repeat';
-    $('p-artbox').style.borderRadius = s.playing ? '28px' : '16px';
-    bar.classList.toggle('idle', !s.playing);
-    bar.classList.toggle('empty', !has);
-    $('p-pos').textContent = fmt(s.position);
-    $('p-dur').textContent = fmt(s.duration);
-    $('p-dur').dataset.s = String(s.duration);
-    $('fp-dur').dataset.s = String(s.duration);
-    const pct = `${s.duration ? Math.min(100, (s.position / s.duration) * 100) : 0}%`;
-    $('p-wave').style.width = pct;
+    const uiKey = `${s.loading}|${s.playing}|${s.shuffle}|${s.repeat}|${has}`;
+    if (uiKey !== lastUiKey) {
+      lastUiKey = uiKey;
+      $('p-icon').textContent = s.loading ? 'hourglass_empty' : s.playing ? 'pause' : 'play_arrow';
+      $('p-play').dataset.playing = String(s.playing);
+      $('p-shuffle').firstElementChild!.className = `ms ${s.shuffle ? 'fill text-primary' : ''}`;
+      $('p-repeat').firstElementChild!.className = `ms ${s.repeat !== 'off' ? 'fill text-primary' : ''}`;
+      $('p-repeat').firstElementChild!.textContent = s.repeat === 'one' ? 'repeat_one' : 'repeat';
+      $('p-artbox').style.borderRadius = s.playing ? '28px' : '16px';
+      bar.classList.toggle('idle', !s.playing);
+      bar.classList.toggle('empty', !has);
+      syncFpControls(s.playing, s.shuffle, s.repeat);
+      syncWave();
+    }
+    const pos = Math.floor(s.position);
+    if (pos !== lastPos) {
+      lastPos = pos;
+      $('p-pos').textContent = fmt(pos);
+      $('fp-pos').textContent = fmt(pos);
+    }
+    const dur = Math.floor(s.duration);
+    if (dur !== lastDur) {
+      lastDur = dur;
+      $('p-dur').textContent = fmt(dur);
+      $('fp-dur').textContent = fmt(dur);
+      $('p-dur').dataset.s = String(s.duration);
+      $('fp-dur').dataset.s = String(s.duration);
+    }
+    const ratio = s.duration ? Math.min(1, s.position / s.duration) : 0;
+    const pct = `${ratio * 100}%`;
     $('p-seek').style.setProperty('--p', pct);
     if (!fpSeek.classList.contains('dragging')) {
-      const ratio = s.duration ? Math.min(1, s.position / s.duration) : 0;
-      fpSeekInput.value = String(Math.round(ratio * 1000));
-      paintSlider(fpSeek, 1000, ratio * 1000);
-      $('fp-pos').textContent = fmt(s.position);
-      $('fp-dur').textContent = fmt(s.duration);
+      const val = Math.round(ratio * 1000);
+      if (fpSeekInput.value !== String(val)) {
+        fpSeekInput.value = String(val);
+        paintSlider(fpSeek, 1000, val);
+      }
     }
-    if (!fpVol.classList.contains('dragging')) {
-      vol.value = String(Math.round(s.volume * 100));
-      fpVolInput.value = vol.value;
-      paintSlider(vol, 100, s.volume * 100);
-      paintSlider(fpVol, 100, +vol.value);
+    const v = Math.round(s.volume * 100);
+    if (!fpVol.classList.contains('dragging') && v !== lastVol) {
+      lastVol = v;
+      vol.value = String(v);
+      fpVolInput.value = String(v);
+      paintSlider(vol, 100, v);
+      paintSlider(fpVol, 100, v);
+      const icon = s.volume <= 0.001 ? 'volume_off' : s.volume < 0.5 ? 'volume_down' : 'volume_up';
+      $('p-vol-icon').textContent = icon;
+      $('fp-vol-icon').textContent = icon;
     }
-    const volIcon = s.volume <= 0.001 ? 'volume_off' : s.volume < 0.5 ? 'volume_down' : 'volume_up';
-    $('p-vol-icon').textContent = volIcon;
-    $('fp-vol-icon').textContent = volIcon;
     renderQueue(s);
-    syncFpControls(s.playing, s.shuffle, s.repeat);
     if (has && (fsOpen || full.classList.contains('fp-lyr') || !panel.classList.contains('translate-x-[115%]'))) loadLyrics();
     if (lines.length) {
       const i = lines.findLastIndex((l) => l.t <= s.position + 0.15);

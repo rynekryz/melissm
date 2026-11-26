@@ -56,14 +56,14 @@ static CONN: Mutex<Option<zbus::Connection>> = Mutex::new(None);
 static STARTED: AtomicBool = AtomicBool::new(false);
 
 fn get() -> MprisData {
-    DATA.lock().unwrap().clone().unwrap_or_default()
+    DATA.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default()
 }
 
 fn set(f: impl FnOnce(&mut MprisData)) -> bool {
     if !STARTED.load(Ordering::SeqCst) {
         return false;
     }
-    let mut g = DATA.lock().unwrap();
+    let mut g = DATA.lock().unwrap_or_else(|e| e.into_inner());
     if g.is_none() {
         *g = Some(MprisData::default());
     }
@@ -73,7 +73,7 @@ fn set(f: impl FnOnce(&mut MprisData)) -> bool {
 }
 
 fn session() -> Option<zbus::Connection> {
-    CONN.lock().unwrap().clone()
+    CONN.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 fn notify(props: Vec<&'static str>) {
@@ -145,7 +145,7 @@ pub fn start(app: AppHandle) {
             Err(e) => Err(e),
         };
         match result {
-            Ok(c) => *CONN.lock().unwrap() = Some(c),
+            Ok(c) => *CONN.lock().unwrap_or_else(|e| e.into_inner()) = Some(c),
             Err(e) => {
                 eprintln!("mpris: {e}");
                 STARTED.store(false, Ordering::SeqCst);
@@ -186,9 +186,9 @@ pub fn update_track(title: String, artist: String, album: String, art: String) {
 }
 
 pub fn update_status(playing: bool, position: f64, duration: f64) {
-    let old_pos = get().current_position();
-    let jump = (position - old_pos).abs() > 1.5;
-    let was = get().playing;
+    let old = get();
+    let jump = (position - old.current_position()).abs() > 1.5;
+    let was = old.playing;
     if !set(|d| {
         d.playing = playing;
         d.duration = duration;

@@ -65,13 +65,6 @@ import Layout from '../layouts/Layout.astro';
       </div>
       <button id="panel-toggle" class="switch" data-on="true"><span class="knob"></span></button>
     </div>
-    <div class="mb-5 flex items-center justify-between">
-      <div>
-        <p class="font-medium">Fussion (experimental)</p>
-        <p class="text-sm text-on-surface-variant">Experimental beat matched blends between songs. Turn this on to show the toggle next to the player controls.</p>
-      </div>
-      <button id="fusion-ui-toggle" class="switch" data-on="false"><span class="knob"></span></button>
-    </div>
     <div>
       <p class="font-medium">UI scale</p>
       <p class="mb-4 text-sm text-on-surface-variant">Dynamic follows your system's text scaling, a touch smaller so more fits.</p>
@@ -107,8 +100,20 @@ import Layout from '../layouts/Layout.astro';
         { id: 'max', label: 'Max' },
         { id: 'high', label: 'High' },
         { id: 'low', label: 'Low' },
+        { id: 'auto', label: 'Auto' },
       ].map((q) => (
         <button data-quality={q.id} class="chip">{q.label}</button>
+      ))}
+    </div>
+    <p class="mb-2 text-sm text-on-surface-variant">Cover art quality</p>
+    <div class="mb-6 flex flex-wrap gap-2" id="art-quality-group" data-value="max">
+      {[
+        { id: 'max', label: 'Max' },
+        { id: 'high', label: 'High' },
+        { id: 'low', label: 'Low' },
+        { id: 'auto', label: 'Auto' },
+      ].map((q) => (
+        <button data-artq={q.id} class="chip">{q.label}</button>
       ))}
     </div>
     <p class="mb-4 text-sm text-on-surface-variant">Speed and pitch apply to whatever is playing, right away.</p>
@@ -220,10 +225,10 @@ import Layout from '../layouts/Layout.astro';
 </Layout>
 <script>
   import { loadOpts, saveOpts, pushTheme, applyScaleSoon, type ThemeOpts } from '../lib/theme';
-  import { cacheClear, cacheInfo, getSettings, lyricsSetOffset, lyricsSetProvider, setAutocache, setAutoload, setFusion, setFusionUi, setPanelClose, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
+  import { cacheClear, cacheInfo, getSettings, lyricsSetOffset, lyricsSetProvider, setAutocache, setAutoload, setPanelClose, setSpeed, setPitch, setEq, systemScale } from '../lib/api';
   import { getQuality, getVolume, setVolume, setQuality, setCrossfade, type Quality } from '../lib/player';
   import { clearLikes, clearHistory, deletePlaylist, getPlaylists, initLibrary } from '../lib/library';
-  import { confirmDialog, esc } from '../lib/ui';
+  import { confirmDialog, esc, getArtQuality, setArtQuality, type ArtQuality } from '../lib/ui';
   import { mountSnake } from '../lib/games';
   import { onPage } from '../lib/page';
 
@@ -233,7 +238,6 @@ import Layout from '../layouts/Layout.astro';
     const schemeGroup = document.getElementById('scheme-group')!;
     const blurToggle = document.getElementById('blur-toggle')!;
     const panelToggle = document.getElementById('panel-toggle')!;
-    const fusionUiToggle = document.getElementById('fusion-ui-toggle')!;
     const scaleDynamic = document.getElementById('scale-dynamic')!;
     const scaleSlider = document.getElementById('scale-slider')!;
     const scaleInput = document.getElementById('scale-input') as HTMLInputElement;
@@ -253,6 +257,7 @@ import Layout from '../layouts/Layout.astro';
     const cacheStatus = document.getElementById('cache-status')!;
     const dataStatus = document.getElementById('data-status')!;
     const qualityGroup = document.getElementById('quality-group')!;
+    const artQualityGroup = document.getElementById('art-quality-group')!;
     const speedSlider = document.getElementById('speed-slider')!;
     const speedInput = document.getElementById('speed-input') as HTMLInputElement;
     const speedLabel = document.getElementById('speed-label')!;
@@ -337,6 +342,11 @@ import Layout from '../layouts/Layout.astro';
       qualityGroup.querySelectorAll<HTMLButtonElement>('[data-quality]').forEach((b) =>
         b.classList.toggle('on', b.dataset.quality === q),
       );
+      const aq = getArtQuality();
+      artQualityGroup.dataset.value = aq;
+      artQualityGroup.querySelectorAll<HTMLButtonElement>('[data-artq]').forEach((b) =>
+        b.classList.toggle('on', b.dataset.artq === aq),
+      );
       const speed = parseFloat(localStorage.getItem('melissm.speed') ?? '1');
       speedInput.value = String(Math.round(speed * 100));
       speedSlider.style.setProperty('--p', `${((speed - 0.5) / 1.5) * 100}%`);
@@ -410,7 +420,6 @@ import Layout from '../layouts/Layout.astro';
       lyrLrclib.classList.toggle('on', s.lyr_lrclib !== '0');
       lyrNetease.classList.toggle('on', s.lyr_netease !== '0');
       panelToggle.dataset.on = String(s.panel_close !== '0');
-      fusionUiToggle.dataset.on = String(s.fusion_ui === '1');
       return s.autocache !== '0';
     });
     cacheToggle.addEventListener('click', async () => {
@@ -428,13 +437,6 @@ import Layout from '../layouts/Layout.astro';
       panelToggle.dataset.on = String(on);
       void setPanelClose(on);
       window.dispatchEvent(new CustomEvent('melissm:panel-close', { detail: on }));
-    });
-    fusionUiToggle.addEventListener('click', () => {
-      const on = (fusionUiToggle.dataset.on ?? 'false') !== 'true';
-      fusionUiToggle.dataset.on = String(on);
-      void setFusionUi(on);
-      if (!on) void setFusion(false);
-      window.dispatchEvent(new CustomEvent('melissm:fusion-ui', { detail: on }));
     });
     document.getElementById('clear-cache')!.addEventListener('click', async () => {
       if (!(await confirmDialog('Delete all downloaded songs?'))) return;
@@ -516,10 +518,25 @@ import Layout from '../layouts/Layout.astro';
       setQuality(v as Quality);
       paint();
     });
+    chip(artQualityGroup, '[data-artq]', 'artq', (v) => {
+      setArtQuality(v as ArtQuality);
+      paint();
+      window.dispatchEvent(new Event('melissm:art-quality'));
+    });
+    let speedRaf = 0;
+    let pendingSpeed = 1;
+    const sendSpeed = (value: number) => {
+      pendingSpeed = value;
+      if (speedRaf) return;
+      speedRaf = requestAnimationFrame(() => {
+        speedRaf = 0;
+        void setSpeed(pendingSpeed);
+      });
+    };
     speedInput.addEventListener('input', () => {
       const speed = +speedInput.value / 100;
       localStorage.setItem('melissm.speed', String(speed));
-      void setSpeed(speed);
+      sendSpeed(speed);
       paint();
     });
     document.getElementById('speed-reset')!.addEventListener('click', () => {
@@ -527,10 +544,20 @@ import Layout from '../layouts/Layout.astro';
       void setSpeed(1);
       paint();
     });
+    let pitchRaf = 0;
+    let pendingPitch = 1;
+    const sendPitch = (value: number) => {
+      pendingPitch = value;
+      if (pitchRaf) return;
+      pitchRaf = requestAnimationFrame(() => {
+        pitchRaf = 0;
+        void setPitch(pendingPitch);
+      });
+    };
     pitchInput.addEventListener('input', () => {
       const st = +pitchInput.value;
       localStorage.setItem('melissm.pitch', String(st));
-      void setPitch(Math.pow(2, st / 12));
+      sendPitch(Math.pow(2, st / 12));
       paint();
     });
     document.getElementById('pitch-reset')!.addEventListener('click', () => {
@@ -538,12 +565,28 @@ import Layout from '../layouts/Layout.astro';
       void setPitch(1);
       paint();
     });
+    let eqRaf = 0;
+    const pendingEq = new Map<number, number>();
+    const sendEq = (band: number, gain: number) => {
+      pendingEq.set(band, gain);
+      if (eqRaf) return;
+      eqRaf = requestAnimationFrame(() => {
+        eqRaf = 0;
+        for (const [b, g] of pendingEq) void setEq(b, g);
+        pendingEq.clear();
+      });
+    };
+    let eqSaveTimer: ReturnType<typeof setTimeout> | undefined;
+    const saveEq = () => {
+      clearTimeout(eqSaveTimer);
+      eqSaveTimer = setTimeout(() => localStorage.setItem(EQ_KEY, JSON.stringify(eq)), 150);
+    };
     eqBands.addEventListener('input', (e) => {
       const el = (e.target as HTMLInputElement).closest<HTMLElement>('.eq-slider');
       if (!el) return;
       eq[+el.dataset.band!] = +(e.target as HTMLInputElement).value;
-      localStorage.setItem(EQ_KEY, JSON.stringify(eq));
-      void setEq(+el.dataset.band!, eq[+el.dataset.band!]);
+      saveEq();
+      sendEq(+el.dataset.band!, eq[+el.dataset.band!]);
       paintEq();
     });
     const applyEq = (gains: number[]) => {
@@ -579,6 +622,7 @@ import Layout from '../layouts/Layout.astro';
       localStorage.removeItem('melissm.pitch');
       localStorage.removeItem('melissm.crossfade');
       localStorage.removeItem('melissm.anim');
+      localStorage.removeItem('melissm.art');
       localStorage.removeItem('melissm.custom-color');
       localStorage.removeItem('melissm.lyrics_offset');
       void lyricsSetOffset(0);
@@ -600,15 +644,13 @@ import Layout from '../layouts/Layout.astro';
       void setAutocache(true);
       void setAutoload(true);
       void setPanelClose(true);
-      void setFusion(false);
-      void setFusionUi(false);
-      window.dispatchEvent(new CustomEvent('melissm:fusion-ui', { detail: false }));
       cacheToggle.dataset.on = 'true';
       autoloadToggle.dataset.on = 'true';
       panelToggle.dataset.on = 'true';
-      fusionUiToggle.dataset.on = 'false';
       eq.forEach((g, i) => void setEq(i, g));
       paintLyrOffset();
+      paint();
+      window.dispatchEvent(new Event('melissm:art-quality'));
       dataStatus.textContent = 'Everything reset to defaults.';
     });
 

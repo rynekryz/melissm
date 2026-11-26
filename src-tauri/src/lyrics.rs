@@ -227,10 +227,28 @@ pub async fn fetch(store: &Store, http: &Client, id: &str, title: &str, artist: 
         }
     }
     let enabled = |k: &str| store.setting(k).as_deref() != Some("0");
+    let remember = |l: &Lyrics| {
+        if let Ok(json) = serde_json::to_string(l) {
+            store.save_cached_lyrics(id, &json);
+        }
+    };
+    if let Some(raw) = store.cached_lyrics(id) {
+        if let Ok(l) = serde_json::from_str::<Lyrics>(&raw) {
+            let allowed = match l.provider.as_str() {
+                "NetEase" => enabled("lyr_netease"),
+                "LrcLib" => enabled("lyr_lrclib"),
+                _ => true,
+            };
+            if allowed && (l.synced.is_some() || l.plain.is_some()) {
+                return l;
+            }
+        }
+    }
     let mut result = Lyrics::default();
     if enabled("lyr_lrclib") {
         if let Some(l) = lrclib(http, title, artist, album, duration).await {
             if l.synced.is_some() || l.plain.is_some() {
+                remember(&l);
                 return l;
             }
             result = l;
@@ -238,8 +256,12 @@ pub async fn fetch(store: &Store, http: &Client, id: &str, title: &str, artist: 
     }
     if enabled("lyr_netease") {
         if let Some(l) = netease(http, title, artist).await {
+            remember(&l);
             return l;
         }
+    }
+    if result.synced.is_some() || result.plain.is_some() {
+        remember(&result);
     }
     result
 }
