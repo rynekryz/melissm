@@ -27,7 +27,7 @@ import Layout from '../layouts/Layout.astro';
         },
       });
     const off = subscribe(draw);
-    window.addEventListener('astro:before-swap', () => off(), { once: true });
+    document.addEventListener('astro:before-swap', () => off(), { once: true });
     document.getElementById('clear-history')!.addEventListener('click', async () => {
       if (!(await confirmDialog('Clear your listening history?'))) return;
       clearHistory();

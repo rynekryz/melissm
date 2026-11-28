@@ -40,7 +40,7 @@ export const artUrl = (url: string, css = 168) => fit(url, artPixels(css));
 const art = (t: Track, cls: string, css = 168) =>
   t.thumbnail
     ? `<img src="${esc(artUrl(t.thumbnail, css))}" alt="" loading="lazy" decoding="async" data-art="${esc(t.thumbnail)}" data-artcss="${css}" class="${cls} object-cover bg-surface-container-highest">`
-    : `<div class="${cls} grid place-items-center bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60">${t.is_album || t.is_playlist ? 'album' : 'music_note'}</span></div>`;
+    : `<div class="${cls} grid place-items-center bg-surface-container-highest"><span class="ms text-on-surface-variant opacity-60">${t.is_profile || t.is_artist ? 'person' : t.is_album || t.is_playlist ? 'album' : 'music_note'}</span></div>`;
 
 let activeId: string | undefined;
 let activeReady = false;
@@ -242,20 +242,20 @@ function openPlaylistMenu(anchor: HTMLElement, track: Track) {
     const b = (e.target as HTMLElement).closest<HTMLElement>('button');
     if (!b) return;
     closeMenu();
-    if (b.dataset.new) {
+    if (b.hasAttribute('data-new')) {
       const name = await promptDialog('New playlist name', '', 'Create');
       if (name) {
         const id = await createPlaylist(name);
         if (id) await addToPlaylist(id, track);
       }
-    } else {
-      await addToPlaylist(+b.dataset.pid!, track);
+    } else if (b.dataset.pid) {
+      await addToPlaylist(+b.dataset.pid, track);
     }
   });
   setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
 }
 
-export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: boolean } = {}) {
+export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: boolean; round?: boolean } = {}) {
   if (!tracks.length) {
     prevCardIds.set(el, new Set());
     el.innerHTML = '';
@@ -272,11 +272,11 @@ export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: bool
         const delay = fresh ? ` style="animation-delay:${Math.min(born++, 16) * 50}ms"` : '';
         return `<div class="card group${fresh ? ' card-in' : ''} ${size}" data-i="${i}" data-id="${t.id}"${delay}>
         <div class="relative">
-          ${art(t, `card-art aspect-square w-full rounded-[32px] shadow-lg shadow-black/30`)}
-          <span class="absolute bottom-2 right-2 grid size-10 place-items-center rounded-full bg-primary/90 text-on-primary opacity-0 transition-opacity duration-300 group-hover:opacity-100"><span class="ms fill">${t.is_album || t.is_playlist || t.is_artist ? 'arrow_forward' : 'play_arrow'}</span></span>
+          ${art(t, `card-art aspect-square w-full ${opts.round ? 'rounded-full' : 'rounded-[32px]'} shadow-lg shadow-black/30`)}
+          <span class="absolute bottom-2 right-2 grid size-10 place-items-center rounded-full bg-primary/90 text-on-primary opacity-0 transition-opacity duration-300 group-hover:opacity-100"><span class="ms fill">${t.is_album || t.is_playlist || t.is_artist || t.is_profile ? 'arrow_forward' : 'play_arrow'}</span></span>
         </div>
         <div class="mt-3 truncate px-2 font-medium">${esc(t.title)}</div>
-        <div class="truncate px-2 text-sm text-on-surface-variant">${t.artist_id && t.artist ? `<span data-artist class="cursor-pointer py-2 hover:font-semibold">${esc(t.artist)}</span>` : esc(t.artist || (t.is_album ? 'Album' : t.is_playlist ? 'Playlist' : t.is_artist ? 'Artist' : ''))}</div>
+        <div class="truncate px-2 text-sm text-on-surface-variant">${t.artist_id && t.artist ? `<span data-artist class="cursor-pointer py-2 hover:font-semibold">${esc(t.artist)}</span>` : esc(t.artist || (t.is_album ? 'Album' : t.is_playlist ? 'Playlist' : t.is_profile ? 'Profile' : t.is_artist ? 'Artist' : ''))}</div>
       </div>`;
       },
     )
@@ -286,7 +286,7 @@ export function renderCards(el: HTMLElement, tracks: Track[], opts: { row?: bool
     if (!row) return;
     const t = tracks[+row.dataset.i!];
     if ((e.target as HTMLElement).closest('[data-artist]') && t.artist_id) return navigate(`/artist?id=${t.artist_id}`);
-    if (t.is_artist) return navigate(`/artist?id=${t.id}`);
+    if (t.is_profile || t.is_artist) return navigate(`/artist?id=${t.id}`);
     if (t.is_album || t.is_playlist) return navigate(`/album?id=${t.id}`);
     playQueue(tracks, +row.dataset.i!);
   };

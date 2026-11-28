@@ -48,7 +48,7 @@ import Layout from '../layouts/Layout.astro';
       recSig = sig;
       renderCards(row, recents, { row: true });
     });
-    window.addEventListener('astro:before-swap', () => sub(), { once: true });
+    document.addEventListener('astro:before-swap', () => sub(), { once: true });
     if (!greeting.dataset.done) {
       const h = new Date().getHours();
       greeting.textContent = h < 5 ? 'Still up?' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';

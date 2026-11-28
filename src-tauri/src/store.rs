@@ -43,6 +43,8 @@ fn row_track(r: &rusqlite::Row) -> rusqlite::Result<Track> {
         is_album: r.get::<_, i64>(7)? != 0,
         is_artist: false,
         is_playlist: false,
+        is_video: false,
+        is_profile: false,
     })
 }
 

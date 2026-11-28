@@ -27,7 +27,7 @@ import Layout from '../layouts/Layout.astro';
     const wrap = list.parentElement!;
     let alive = true;
     let io: IntersectionObserver | null = null;
-    window.addEventListener(
+    document.addEventListener(
       'astro:before-swap',
       () => {
         alive = false;

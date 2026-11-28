@@ -697,7 +697,7 @@ import Layout from '../layouts/Layout.astro';
       document.getElementById('snake-canvas') as HTMLCanvasElement,
       document.getElementById('snake-score')!,
     );
-    window.addEventListener(
+    document.addEventListener(
       'astro:before-swap',
       () => {
         stopGame();

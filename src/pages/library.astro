@@ -36,7 +36,9 @@ import Layout from '../layouts/Layout.astro';
     const drawLiked = () => {
       const tracks = getLikes();
       renderTracks(liked, tracks);
-      document.getElementById('play-all')!.onclick = () => tracks.length && playQueue(tracks, 0);
+      const playAll = document.getElementById('play-all') as HTMLButtonElement | null;
+      if (!playAll) return;
+      playAll.onclick = () => tracks.length && playQueue(tracks, 0);
     };
     const drawPlaylists = () => {
       const lists = getPlaylists();
@@ -87,6 +89,6 @@ import Layout from '../layouts/Layout.astro';
     document.getElementById('pl-name')!.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') (document.getElementById('new-playlist') as HTMLButtonElement).click();
     });
-    window.addEventListener('astro:before-swap', () => sub(), { once: true });
+    document.addEventListener('astro:before-swap', () => sub(), { once: true });
   });
 </script>

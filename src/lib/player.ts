@@ -12,6 +12,8 @@ export type Track = {
   is_album?: boolean;
   is_artist?: boolean;
   is_playlist?: boolean;
+  is_video?: boolean;
+  is_profile?: boolean;
   artist_id?: string | null;
 };
 export type RepeatMode = 'off' | 'all' | 'one';

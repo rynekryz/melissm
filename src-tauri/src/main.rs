@@ -579,6 +579,15 @@ async fn search(state: State<'_, AppState>, query: String) -> Result<Vec<Track>,
 }
 
 #[tauri::command]
+async fn search_sections(
+    state: State<'_, AppState>,
+    query: String,
+    filter: String,
+) -> Result<Vec<innertube::SearchSection>, String> {
+    state.yt.search_sections(&query, &filter).await
+}
+
+#[tauri::command]
 async fn home(state: State<'_, AppState>) -> Result<Vec<innertube::Section>, String> {
     state.yt.home().await
 }
@@ -1185,7 +1194,7 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            search, home, playlists_for_you, album, album_more, artist, get_queue, play_tracks, play_radio, play_at,
+            search, search_sections, home, playlists_for_you, album, album_more, artist, get_queue, play_tracks, play_radio, play_at,
             skip_next, skip_prev_cmd,
             toggle_play_cmd, pause, resume, seek, volume, toggle_shuffle_cmd, cycle_repeat_cmd,
             set_window_visible, set_quality, get_settings, set_speed, set_pitch, set_eq, set_crossfade, set_autocache, set_autoload,

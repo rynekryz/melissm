@@ -67,6 +67,6 @@ import Layout from '../layouts/Layout.astro';
     document.getElementById('pl-name')!.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') (document.getElementById('new-playlist') as HTMLButtonElement).click();
     });
-    window.addEventListener('astro:before-swap', () => sub(), { once: true });
+    document.addEventListener('astro:before-swap', () => sub(), { once: true });
   });
 </script>

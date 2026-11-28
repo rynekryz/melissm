@@ -35,14 +35,16 @@ import Layout from '../layouts/Layout.astro';
       if (page.top.length) {
         const sec = document.createElement('section');
         sec.className = 'section-in';
-        sec.innerHTML = `<h2 class="mb-3 text-2xl font-medium">Popular</h2><div class="space-y-1"></div>`;
+        sec.innerHTML = `<h2 class="mb-3 text-2xl font-medium">${page.is_profile ? 'Videos' : 'Popular'}</h2><div class="space-y-1"></div>`;
         content.appendChild(sec);
         renderTracks(sec.querySelector('div')!, page.top);
       }
-      const rows: [string, Track[]][] = [
-        ['Albums', page.albums],
-        ['Singles', page.singles],
-      ];
+      const rows: [string, Track[]][] = page.is_profile
+        ? [['Playlists', page.albums]]
+        : [
+            ['Albums', page.albums],
+            ['Singles', page.singles],
+          ];
       for (const [title, cards] of rows) {
         if (!cards.length) continue;
         const sec = document.createElement('section');

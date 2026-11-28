@@ -13,6 +13,14 @@ const VISIONOS_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleW
 const IOS_UA: &str = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";
 const SONGS_FILTER: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA==";
 const PLAYLISTS_FILTER: &str = "EgeKAQQoAEABagoQBRAKEAMQBA==";
+const SEARCH_ALL: &str = "EhGKAQ4IARABGAEgASgAOAFAAUICCAE=";
+const SEARCH_SONGS: &str = "EgWKAQIIAUICCAFqDBAOEAoQAxAEEAkQBQ==";
+const SEARCH_VIDEOS: &str = "EgWKAQIQAUICCAFqDBAOEAoQAxAEEAkQBQ==";
+const SEARCH_ALBUMS: &str = "EgWKAQIYAUICCAFqDBAOEAoQAxAEEAkQBQ==";
+const SEARCH_ARTISTS: &str = "EgWKAQIgAUICCAFqDBAOEAoQAxAEEAkQBQ==";
+const SEARCH_PROFILES: &str = "EgWKAQJYAUICCAFqDBAOEAoQAxAEEAkQBQ==";
+const SEARCH_COMMUNITY: &str = "EgeKAQQoAEABQgIIAWoMEA4QChADEAQQCRAF";
+const SEARCH_PLAYLISTS: &str = "EgeKAQQoADgBQgIIAWoMEA4QChADEAQQCRAF";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Track {
@@ -30,6 +38,10 @@ pub struct Track {
     #[serde(default)]
     pub is_playlist: bool,
     #[serde(default)]
+    pub is_video: bool,
+    #[serde(default)]
+    pub is_profile: bool,
+    #[serde(default)]
     pub artist_id: Option<String>,
 }
 
@@ -37,6 +49,47 @@ pub struct Track {
 pub struct Section {
     pub title: String,
     pub tracks: Vec<Track>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct SearchSection {
+    pub title: String,
+    pub kind: String,
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RowKind {
+    Song,
+    Video,
+    Album,
+    Artist,
+    Playlist,
+    Profile,
+}
+
+impl RowKind {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Song => "Songs",
+            Self::Video => "Videos",
+            Self::Album => "Albums",
+            Self::Artist => "Artists",
+            Self::Playlist => "Playlists",
+            Self::Profile => "Profiles",
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Song => "songs",
+            Self::Video => "videos",
+            Self::Album => "albums",
+            Self::Artist => "artists",
+            Self::Playlist => "playlists",
+            Self::Profile => "profiles",
+        }
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -62,7 +115,7 @@ pub fn playlist_continuation(v: &Value) -> Option<String> {
 fn parse_album(v: &Value, id: &str) -> Result<AlbumPage, String> {
     let mut items = vec![];
     collect(v, "musicResponsiveListItemRenderer", &mut items);
-    let tracks = dedupe(items.into_iter().filter_map(parse_list_item).collect());
+    let mut tracks = dedupe(items.into_iter().filter_map(parse_list_item).collect());
     if tracks.is_empty() {
         return Err("empty album".into());
     }
@@ -81,9 +134,17 @@ fn parse_album(v: &Value, id: &str) -> Result<AlbumPage, String> {
         .map(|rs| rs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(" "))
         .unwrap_or_default();
     let thumb = header
-        .map(|h| thumbnail(h, "/thumbnail/thumbnails"))
-        .or_else(|| tracks.first().map(|t| t.thumbnail.clone()))
+        .map(|h| thumbnail(h, "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails"))
+        .filter(|s| !s.is_empty())
+        .or_else(|| tracks.iter().map(|t| t.thumbnail.clone()).find(|s| !s.is_empty()))
         .unwrap_or_default();
+    if !thumb.is_empty() {
+        for t in &mut tracks {
+            if t.thumbnail.is_empty() {
+                t.thumbnail = thumb.clone();
+            }
+        }
+    }
     let next = if id.starts_with("VL") || id.starts_with("PL") { playlist_continuation(v) } else { None };
     Ok(AlbumPage { title, subtitle, thumbnail: thumb, tracks, next })
 }
@@ -95,6 +156,7 @@ pub struct ArtistPage {
     pub top: Vec<Track>,
     pub albums: Vec<Track>,
     pub singles: Vec<Track>,
+    pub is_profile: bool,
 }
 
 struct Stream {
@@ -174,37 +236,109 @@ fn parse_seconds(s: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-fn parse_list_item(r: &Value) -> Option<Track> {
-    let id = r
-        .pointer("/playlistItemData/videoId")
+fn row_title(r: &Value) -> Option<String> {
+    let runs = r
+        .pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs")?
+        .as_array()?;
+    Some(runs.iter().filter_map(|x| x.get("text").and_then(Value::as_str)).collect())
+}
+
+fn row_groups(r: &Value) -> Vec<String> {
+    runs_groups(r.pointer("/flexColumns/1/musicResponsiveListItemFlexColumnRenderer/text/runs"))
+}
+
+fn row_browse(r: &Value) -> Option<&str> {
+    r.pointer("/navigationEndpoint/browseEndpoint/browseId")
+        .or_else(|| r.pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs/0/navigationEndpoint/browseEndpoint/browseId"))
+        .and_then(Value::as_str)
+}
+
+fn row_video_id(r: &Value) -> Option<&str> {
+    r.pointer("/playlistItemData/videoId")
         .or_else(|| r.pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId"))
-        .and_then(Value::as_str)?;
-    let cols = r.get("flexColumns")?.as_array()?;
-    let runs = |i: usize| cols.get(i)?.pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs");
-    let title = runs(0)?.get(0)?.get("text")?.as_str()?.to_string();
-    let meta = runs_groups(runs(1));
-    let duration = meta
-        .last()
-        .filter(|g| g.contains(':'))
+        .or_else(|| r.pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs/0/navigationEndpoint/watchEndpoint/videoId"))
+        .and_then(Value::as_str)
+}
+
+fn row_video_type(r: &Value) -> &str {
+    r.pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/watchEndpointMusicSupportedConfigs/watchEndpointMusicConfig/musicVideoType")
+        .or_else(|| r.pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs/0/navigationEndpoint/watchEndpoint/watchEndpointMusicSupportedConfigs/watchEndpointMusicConfig/musicVideoType"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+}
+
+fn row_artist_id(r: &Value) -> Option<String> {
+    r.pointer("/flexColumns/1/musicResponsiveListItemFlexColumnRenderer/text/runs")
+        .and_then(Value::as_array)
+        .and_then(|rs| {
+            rs.iter().find_map(|run| {
+                run.pointer("/navigationEndpoint/browseEndpoint/browseId")
+                    .and_then(Value::as_str)
+                    .filter(|id| id.starts_with("UC") || (id.starts_with("MP") && !id.starts_with("MPREb")))
+                    .map(str::to_string)
+            })
+        })
+}
+
+fn row_thumbnail(r: &Value) -> String {
+    thumbnail(r, "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
+}
+
+fn row_duration(r: &Value, groups: &[String]) -> f64 {
+    groups
+        .iter()
+        .rev()
+        .find(|g| g.contains(':'))
         .map(|g| parse_seconds(g))
-        .unwrap_or(0.0);
-    let artist_id = runs(1).and_then(|rs| rs.get(0)).and_then(|run| {
-        run.pointer("/navigationEndpoint/browseEndpoint/browseId")
-            .and_then(Value::as_str)
-            .filter(|id| id.starts_with("UC") || (id.starts_with("MP") && !id.starts_with("MPREb")))
-            .map(|s| s.to_string())
-    });
+        .or_else(|| {
+            r.pointer("/fixedColumns/0/musicResponsiveListItemFixedColumnRenderer/text/runs/0/text")
+                .and_then(Value::as_str)
+                .filter(|s| s.contains(':'))
+                .map(parse_seconds)
+        })
+        .unwrap_or(0.0)
+}
+
+fn is_song_video(vtype: &str) -> bool {
+    matches!(
+        vtype,
+        "MUSIC_VIDEO_TYPE_ATV"
+            | "MUSIC_VIDEO_TYPE_OMV"
+            | "MUSIC_VIDEO_TYPE_UGC"
+            | "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC"
+    )
+}
+
+fn without_kind(groups: &[String]) -> &[String] {
+    if matches!(groups.first().map(String::as_str), Some("Song" | "Video")) {
+        &groups[1..]
+    } else {
+        groups
+    }
+}
+
+fn parse_list_item(r: &Value) -> Option<Track> {
+    let id = row_video_id(r)?;
+    let title = row_title(r)?;
+    let groups = row_groups(r);
+    let rest = without_kind(&groups);
+    let vtype = row_video_type(r);
+    let is_video = vtype != "MUSIC_VIDEO_TYPE_ATV" && is_song_video(vtype);
+    let artist = rest.first().cloned().unwrap_or_default();
+    let album = if !is_video && rest.len() >= 3 { rest[1].clone() } else { String::new() };
     Some(Track {
         id: id.into(),
         title,
-        artist: meta.first().cloned().unwrap_or_default(),
-        album: if meta.len() >= 3 { meta[1].clone() } else { String::new() },
-        duration,
-        thumbnail: thumbnail(r, "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails"),
+        artist,
+        album,
+        duration: row_duration(r, rest),
+        thumbnail: row_thumbnail(r),
         is_album: false,
         is_artist: false,
         is_playlist: false,
-        artist_id,
+        is_video,
+        is_profile: false,
+        artist_id: row_artist_id(r),
     })
 }
 
@@ -220,86 +354,205 @@ pub fn parse_two_row(r: &Value) -> Option<Track> {
     let artist_id = r
         .pointer("/subtitle/runs")
         .and_then(Value::as_array)
-        .and_then(|rs| rs.iter().find_map(|run| {
-            run.pointer("/navigationEndpoint/browseEndpoint/browseId")
-                .and_then(Value::as_str)
-                .filter(|id| id.starts_with("UC") || (id.starts_with("MP") && !id.starts_with("MPREb")))
-                .map(|s| s.to_string())
-        }));
-    let browse = r
-        .pointer("/navigationEndpoint/browseEndpoint/browseId")
-        .and_then(Value::as_str)?;
-    let is_album = browse.starts_with("MPREb");
-    let is_playlist = browse.starts_with("VL") || browse.starts_with("PL");
-    let is_artist = browse.starts_with("MP") && !is_album;
+        .and_then(|rs| {
+            rs.iter().find_map(|run| {
+                run.pointer("/navigationEndpoint/browseEndpoint/browseId")
+                    .and_then(Value::as_str)
+                    .filter(|id| id.starts_with("UC") || (id.starts_with("MP") && !id.starts_with("MPREb")))
+                    .map(str::to_string)
+            })
+        });
+    let thumbnail = thumbnail(r, "/thumbnailRenderer/musicThumbnailRenderer/thumbnail/thumbnails");
+    if let Some(browse) = r.pointer("/navigationEndpoint/browseEndpoint/browseId").and_then(Value::as_str) {
+        let is_album = browse.starts_with("MPREb");
+        let is_playlist = browse.starts_with("VL") || browse.starts_with("PL");
+        let is_artist = browse.starts_with("MP") && !is_album;
+        return Some(Track {
+            id: browse.into(),
+            title,
+            artist,
+            album: kind,
+            duration: 0.0,
+            thumbnail,
+            is_album,
+            is_artist,
+            is_playlist,
+            is_video: false,
+            is_profile: false,
+            artist_id,
+        });
+    }
+    let id = r.pointer("/navigationEndpoint/watchEndpoint/videoId").and_then(Value::as_str)?;
+    let vtype = r
+        .pointer("/navigationEndpoint/watchEndpoint/watchEndpointMusicSupportedConfigs/watchEndpointMusicConfig/musicVideoType")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !is_song_video(vtype) {
+        return None;
+    }
     Some(Track {
-        id: browse.into(),
+        id: id.into(),
         title,
         artist,
-        album: kind,
+        album: String::new(),
         duration: 0.0,
-        thumbnail: thumbnail(r, "/thumbnailRenderer/musicThumbnailRenderer/thumbnail/thumbnails"),
-        is_album,
-        is_artist,
-        is_playlist,
+        thumbnail,
+        is_album: false,
+        is_artist: false,
+        is_playlist: false,
+        is_video: vtype != "MUSIC_VIDEO_TYPE_ATV",
+        is_profile: false,
         artist_id,
     })
 }
 
 fn parse_playlist_row(r: &Value) -> Option<Track> {
-    let cols = r.get("flexColumns")?.as_array()?;
-    let runs = |i: usize| cols.get(i)?.pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs");
-    let title = runs(0)
-        .and_then(Value::as_array)
-        .map(|rs| rs.iter().filter_map(|x| x.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(""))
-        .unwrap_or_default();
-    if title.is_empty() {
-        return None;
+    match parse_search_row(r) {
+        Some((RowKind::Playlist, track)) => Some(track),
+        _ => None,
     }
-    let author = runs_groups(runs(1)).into_iter().next_back().unwrap_or_default();
-    let mut id: Option<String> = None;
-    let mut stack: Vec<&Value> = vec![r];
-    while let Some(x) = stack.pop() {
-        match x {
-            Value::Object(m) => {
-                if let Some(Value::String(b)) = m.get("browseId") {
-                    if (b.starts_with("VL") || b.starts_with("PL")) && id.is_none() {
-                        id = Some(b.clone());
-                    }
-                }
-                if id.is_none() {
-                    if let Some(Value::String(p)) = m.get("playlistId") {
-                        let base = p.strip_prefix("RDAMPL").or_else(|| p.strip_prefix("RDAMP")).unwrap_or(p);
-                        if base.starts_with("PL") || base.starts_with("OLAK5uy_") {
-                            id = Some(format!("VL{base}"));
-                        }
-                    }
-                }
-                stack.extend(m.values());
-            }
-            Value::Array(a) => stack.extend(a.iter()),
-            _ => {}
-        }
-    }
-    let id = id?;
-    Some(Track {
-        id,
-        title,
-        artist: author,
-        album: "Playlist".into(),
-        duration: 0.0,
-        thumbnail: thumbnail(r, "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails"),
-        is_album: false,
-        is_artist: false,
-        is_playlist: true,
-        artist_id: None,
-    })
 }
 
 fn dedupe(mut tracks: Vec<Track>) -> Vec<Track> {
     let mut seen = std::collections::HashSet::new();
     tracks.retain(|t| seen.insert(t.id.clone()));
     tracks
+}
+
+fn parse_search_row(r: &Value) -> Option<(RowKind, Track)> {
+    let title = row_title(r)?;
+    let groups = row_groups(r);
+    let thumbnail = row_thumbnail(r);
+    let artist_id = row_artist_id(r);
+    let duration = row_duration(r, &groups);
+    let (kind, id, artist, album, is_album, is_artist, is_playlist, is_video, is_profile) =
+        if let Some(browse) = row_browse(r) {
+            if browse.starts_with("MPREb") {
+                (
+                    RowKind::Album,
+                    browse.to_string(),
+                    groups.get(1).cloned().unwrap_or_default(),
+                    groups.get(2).cloned().unwrap_or_default(),
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                )
+            } else if browse.starts_with("VL") || browse.starts_with("PL") {
+                let author = if groups.first().map(String::as_str) == Some("Playlist") {
+                    groups.get(1)
+                } else {
+                    groups.first()
+                };
+                (
+                    RowKind::Playlist,
+                    browse.to_string(),
+                    author.cloned().unwrap_or_default(),
+                    "Playlist".into(),
+                    false,
+                    false,
+                    true,
+                    false,
+                    false,
+                )
+            } else if browse.starts_with("UC") {
+                let is_profile = groups.first().map(String::as_str) == Some("Profile")
+                    || groups.get(1).is_some_and(|g| g.starts_with('@'));
+                if is_profile {
+                    (
+                        RowKind::Profile,
+                        browse.to_string(),
+                        groups.get(1).cloned().unwrap_or_default(),
+                        "Profile".into(),
+                        false,
+                        false,
+                        false,
+                        false,
+                        true,
+                    )
+                } else {
+                    (
+                        RowKind::Artist,
+                        browse.to_string(),
+                        "Artist".into(),
+                        "Artist".into(),
+                        false,
+                        true,
+                        false,
+                        false,
+                        false,
+                    )
+                }
+            } else {
+                return None;
+            }
+        } else {
+            let id = row_video_id(r)?;
+            let vtype = row_video_type(r);
+            if !is_song_video(vtype) {
+                return None;
+            }
+            let rest = without_kind(&groups);
+            let artist = rest.first().cloned().unwrap_or_default();
+            let is_video = vtype != "MUSIC_VIDEO_TYPE_ATV";
+            let album = if !is_video && rest.len() >= 3 { rest[1].clone() } else { String::new() };
+            (
+                if is_video { RowKind::Video } else { RowKind::Song },
+                id.to_string(),
+                artist,
+                album,
+                false,
+                false,
+                false,
+                is_video,
+                false,
+            )
+        };
+    Some((
+        kind,
+        Track {
+            id,
+            title,
+            artist,
+            album,
+            duration,
+            thumbnail,
+            is_album,
+            is_artist,
+            is_playlist,
+            is_video,
+            is_profile,
+            artist_id,
+        },
+    ))
+}
+
+fn search_params(filter: &str) -> &'static str {
+    match filter {
+        "songs" | "song" => SEARCH_SONGS,
+        "videos" | "video" => SEARCH_VIDEOS,
+        "albums" | "album" => SEARCH_ALBUMS,
+        "artists" | "artist" => SEARCH_ARTISTS,
+        "community" | "community_playlist" | "community_playlists" => SEARCH_COMMUNITY,
+        "playlists" | "playlist" => SEARCH_PLAYLISTS,
+        "profiles" | "profile" => SEARCH_PROFILES,
+        _ => SEARCH_ALL,
+    }
+}
+
+fn filter_kind(filter: &str) -> Option<RowKind> {
+    match filter {
+        "songs" | "song" => Some(RowKind::Song),
+        "videos" | "video" => Some(RowKind::Video),
+        "albums" | "album" => Some(RowKind::Album),
+        "artists" | "artist" => Some(RowKind::Artist),
+        "community" | "community_playlist" | "community_playlists" | "playlists" | "playlist" => {
+            Some(RowKind::Playlist)
+        }
+        "profiles" | "profile" => Some(RowKind::Profile),
+        _ => None,
+    }
 }
 
 fn extract_visitor(page: &str) -> String {
@@ -344,6 +597,60 @@ impl Yt {
         let mut items = vec![];
         collect(&v, "musicResponsiveListItemRenderer", &mut items);
         Ok(dedupe(items.into_iter().filter_map(parse_list_item).collect()))
+    }
+
+    pub async fn search_sections(&self, query: &str, filter: &str) -> Result<Vec<SearchSection>, String> {
+        let body = json!({
+            "context": web_context(),
+            "query": query,
+            "params": search_params(filter)
+        });
+        let v = self.post("search", body, WEB_UA, true).await?;
+        let mut items = vec![];
+        collect(&v, "musicResponsiveListItemRenderer", &mut items);
+        let parsed: Vec<(RowKind, Track)> = items.into_iter().filter_map(parse_search_row).collect();
+        if filter.is_empty() || filter == "all" {
+            let mut sections = vec![];
+            for kind in [
+                RowKind::Song,
+                RowKind::Video,
+                RowKind::Album,
+                RowKind::Artist,
+                RowKind::Playlist,
+                RowKind::Profile,
+            ] {
+                let tracks = dedupe(
+                    parsed
+                        .iter()
+                        .filter(|(k, _)| *k == kind)
+                        .map(|(_, t)| t.clone())
+                        .collect(),
+                );
+                if !tracks.is_empty() {
+                    sections.push(SearchSection { title: kind.title().into(), kind: kind.key().into(), tracks });
+                }
+            }
+            return Ok(sections);
+        }
+        let Some(kind) = filter_kind(filter) else { return Ok(vec![]) };
+        let tracks = dedupe(
+            parsed
+                .into_iter()
+                .filter(|(k, _)| *k == kind)
+                .map(|(_, t)| t)
+                .collect(),
+        );
+        if tracks.is_empty() {
+            return Ok(vec![]);
+        }
+        let title = match filter {
+            "community" | "community_playlist" | "community_playlists" => "Community Playlist",
+            "playlists" | "playlist" => "Playlist",
+            "artists" | "artist" => "Artist",
+            "profiles" | "profile" => "Profiles",
+            _ => kind.title(),
+        };
+        Ok(vec![SearchSection { title: title.into(), kind: kind.key().into(), tracks }])
     }
 
     pub async fn playlists(&self, query: &str) -> Result<Vec<Track>, String> {
@@ -403,26 +710,33 @@ impl Yt {
     pub async fn artist(&self, id: &str) -> Result<ArtistPage, String> {
         let body = json!({ "context": web_context(), "browseId": id });
         let v = self.post("browse", body, WEB_UA, true).await?;
-        let mut headers = vec![];
-        collect(&v, "musicImmersiveHeaderRenderer", &mut headers);
-        let name = headers
+        let mut immersive = vec![];
+        collect(&v, "musicImmersiveHeaderRenderer", &mut immersive);
+        let mut visual = vec![];
+        collect(&v, "musicVisualHeaderRenderer", &mut visual);
+        let is_profile = immersive.is_empty() && !visual.is_empty();
+        let name = immersive
             .first()
+            .or_else(|| visual.first())
             .and_then(|h| h.pointer("/title/runs/0/text"))
             .and_then(Value::as_str)
             .unwrap_or("Artist")
             .to_string();
-        let thumbnail = headers
+        let thumbnail = immersive
             .first()
-            .and_then(|h| h.pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails"))
-            .and_then(Value::as_array)
-            .and_then(|a| a.last())
-            .and_then(|t| t.get("url"))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+            .map(|h| thumbnail(h, "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails"))
+            .or_else(|| visual.first().map(|h| thumbnail(h, "/foregroundThumbnail/musicThumbnailRenderer/thumbnail/thumbnails")))
+            .unwrap_or_default();
         let mut carousels = vec![];
         collect(&v, "musicCarouselShelfRenderer", &mut carousels);
-        let mut page = ArtistPage { name, thumbnail, top: Vec::new(), albums: Vec::new(), singles: Vec::new() };
+        let mut page = ArtistPage {
+            name,
+            thumbnail,
+            top: Vec::new(),
+            albums: Vec::new(),
+            singles: Vec::new(),
+            is_profile,
+        };
         for c in &carousels {
             let title = c
                 .pointer("/header/musicCarouselShelfBasicHeaderRenderer/title/runs/0/text")
@@ -433,7 +747,11 @@ impl Yt {
             collect(c, "musicResponsiveListItemRenderer", &mut songs);
             let mut cards = vec![];
             collect(c, "musicTwoRowItemRenderer", &mut cards);
-            if title.contains("song") || title.contains("track") {
+            if is_profile && title.contains("video") {
+                page.top.extend(cards.into_iter().filter_map(parse_two_row));
+            } else if is_profile && title.contains("playlist") {
+                page.albums.extend(cards.into_iter().filter_map(parse_two_row));
+            } else if title.contains("song") || title.contains("track") {
                 page.top.extend(songs.into_iter().filter_map(parse_list_item));
             } else if title.contains("album") {
                 page.albums.extend(cards.into_iter().filter_map(parse_two_row));
@@ -594,6 +912,8 @@ fn parse_radio_item(r: &Value) -> Option<Track> {
         is_album: false,
         is_artist: false,
         is_playlist: false,
+        is_video: false,
+        is_profile: false,
         artist_id: None,
     })
 }

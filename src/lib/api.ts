@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Track } from './player';
-import type { AlbumPage, ArtistPage, PlaylistMeta, Section } from './types';
+import type { AlbumPage, ArtistPage, PlaylistMeta, SearchSection, Section } from './types';
 
 export type KWord = { t: string; s: number };
 export type KLine = { text: string; start: number; words: KWord[] | null };
@@ -10,6 +10,8 @@ export type ThemeSource = { wallpaper: null } | { artwork: null } | { color: str
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 export const search = (query: string) => invoke<Track[]>('search', { query });
+export const searchSections = (query: string, filter: string) =>
+  invoke<SearchSection[]>('search_sections', { query, filter });
 export const playlistsForYou = (query: string) => invoke<Track[]>('playlists_for_you', { query });
 export const home = () => invoke<Section[]>('home');
 export const album = (id: string) => invoke<AlbumPage>('album', { id });
